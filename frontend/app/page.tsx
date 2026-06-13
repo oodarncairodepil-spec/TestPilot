@@ -143,11 +143,13 @@ export default function HomePage() {
     [scripts, selectedScriptId]
   );
 
-  const selectScript = useCallback((script: Script) => {
+  const selectScript = useCallback((script: Script, options?: { preserveSearch?: boolean }) => {
     setSelectedScriptId(script.id);
     setScriptName(script.name);
     setScriptContent(script.content);
-    setScenarioSearch(script.name);
+    if (!options?.preserveSearch) {
+      setScenarioSearch('');
+    }
   }, []);
 
   const filteredScripts = useMemo(() => {
@@ -324,8 +326,7 @@ export default function HomePage() {
   };
 
   const chooseScenario = (script: Script) => {
-    selectScript(script);
-    setScenarioSearch(script.name);
+    selectScript(script, { preserveSearch: true });
     setIsScenarioDropdownOpen(false);
     setIsEditingScenarioName(false);
   };
@@ -535,17 +536,17 @@ export default function HomePage() {
                       <Trash2 className="mr-2 h-4 w-4" />
                       Delete
                     </Button>
+                    <Button className="bg-sky-600 text-white shadow hover:bg-sky-500" onClick={createNewScenario}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      New
+                    </Button>
                     <Button onClick={saveScript} disabled={isSavingScript}>
                       <Save className="mr-2 h-4 w-4" />
                       {isSavingScript ? 'Saving...' : 'Save'}
                     </Button>
-                    <Button variant="secondary" onClick={runScript} disabled={isRunningScript || !selectedScript}>
+                    <Button className="bg-emerald-600 text-white shadow hover:bg-emerald-500" onClick={runScript} disabled={isRunningScript || !selectedScript}>
                       <Play className="mr-2 h-4 w-4" />
                       {isRunningScript ? 'Starting run...' : 'Run'}
-                    </Button>
-                    <Button variant="secondary" onClick={createNewScenario}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      New
                     </Button>
                   </div>
                 </div>
