@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server } from 'node:http';
+import { runRepo } from './db.js';
 import { logger } from './logger.js';
 
 type Message = {
@@ -51,6 +52,13 @@ export const publishRunLog = (message: Message): void => {
     buffered.splice(0, buffered.length - MAX_BUFFERED);
   }
   runBuffers.set(message.runId, buffered);
+  runRepo.persistLog({
+    runId: message.runId,
+    logType: message.type,
+    stream: message.stream,
+    message: message.data,
+    timestamp: message.timestamp
+  });
   const targets = clientsByRun.get(message.runId);
   targets?.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
@@ -60,4 +68,3 @@ export const publishRunLog = (message: Message): void => {
 };
 
 export const getBufferedLogs = (runId: string): Message[] => runBuffers.get(runId) ?? [];
-

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { config } from '../config.js';
+import { runRepo } from '../db.js';
 import { logger } from '../logger.js';
 import { publishRunLog } from '../logHub.js';
 import { ParsedRunResult, RunStatus, ScriptRecord } from '../types.js';
@@ -290,6 +291,8 @@ export const executeScript = async (runId: string, script: ScriptRecord): Promis
     networkFailures: safeArray(parsed.networkFailures)
   };
   writeJson(path.join(artifactDir, 'metadata.json'), metadata);
+  runRepo.attachMetadata(runId, metadata);
+  runRepo.persistArtifacts(runId, artifactDir);
 
   publishRunLog({
     type: 'status',

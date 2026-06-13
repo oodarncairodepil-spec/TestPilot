@@ -25,6 +25,23 @@ export interface RunRecord {
   finalUrl: string;
   consoleLogs: string[];
   networkFailures: string[];
+  metadata?: RunMetadata | null;
+}
+
+export interface RunMetadata {
+  id: string;
+  status: RunStatus;
+  startTime: string;
+  endTime: string;
+  duration: number;
+  stdout: string;
+  stderr: string;
+  screenshots: string[];
+  videos: string[];
+  traces: string[];
+  finalUrl: string;
+  consoleLogs: string[];
+  networkFailures: string[];
 }
 
 export interface ParsedRunResult {

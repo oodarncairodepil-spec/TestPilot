@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { config } from './config.js';
-import { RunRecord, RunStatus, ScriptRecord } from './types.js';
+import { RunMetadata, RunRecord, RunStatus, ScriptRecord } from './types.js';
 
 const ensureDir = (dirPath: string): void => {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -93,6 +93,141 @@ const ensureSupabase = (): NonNullable<typeof supabase> => {
     throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
   }
   return supabase;
+};
+
+const getArtifactKind = (filePath: string): 'image' | 'video' | 'json' | 'other' => {
+  const lower = filePath.toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(lower)) return 'image';
+  if (/\.(mp4|webm|ogg|mov)$/.test(lower)) return 'video';
+  if (/\.json$/.test(lower)) return 'json';
+  return 'other';
+};
+
+const getArtifactBrowser = (filePath: string): 'chromium' | 'firefox' | 'webkit' | 'unknown' => {
+  if (filePath.includes('chromium')) return 'chromium';
+  if (filePath.includes('firefox')) return 'firefox';
+  if (filePath.includes('webkit')) return 'webkit';
+  return 'unknown';
+};
+
+const getFileName = (filePath: string): string => path.basename(filePath);
+
+const listArtifactPaths = (artifactDir: string): string[] => {
+  if (!fs.existsSync(artifactDir)) {
+    return [];
+  }
+
+  const files: string[] = [];
+  const stack = [artifactDir];
+
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    if (!dir) {
+      continue;
+    }
+
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else {
+        files.push(path.relative(artifactDir, full));
+      }
+    }
+  }
+
+  return files.sort((a, b) => a.localeCompare(b));
+};
+
+const persistRunToSupabase = async (run: RunRecord): Promise<void> => {
+  if (!supabase) {
+    return;
+  }
+
+  const client = ensureSupabase();
+  const payload = {
+    id: run.id,
+    script_id: run.scriptId,
+    script_name: run.scriptName,
+    status: run.status,
+    created_at: run.createdAt,
+    start_time: run.startTime,
+    end_time: run.endTime,
+    duration_ms: run.durationMs,
+    workspace_dir: run.workspaceDir,
+    artifact_dir: run.artifactDir,
+    stdout_path: run.stdoutPath,
+    stderr_path: run.stderrPath,
+    final_url: run.finalUrl,
+    console_logs: run.consoleLogs,
+    network_failures: run.networkFailures,
+    metadata: run.metadata ?? null,
+    updated_at: new Date().toISOString()
+  };
+
+  const { error } = await client.from('qauto_test_runs').upsert(payload, { onConflict: 'id' });
+  if (error) {
+    throw new Error(`failed to persist test run: ${error.message}`);
+  }
+};
+
+const persistArtifactsToSupabase = async (runId: string, artifactDir: string): Promise<void> => {
+  if (!supabase) {
+    return;
+  }
+
+  const client = ensureSupabase();
+  const artifactPaths = listArtifactPaths(artifactDir);
+
+  const { error: deleteError } = await client.from('qauto_test_run_artifacts').delete().eq('run_id', runId);
+  if (deleteError) {
+    throw new Error(`failed to reset test run artifacts: ${deleteError.message}`);
+  }
+
+  if (artifactPaths.length === 0) {
+    return;
+  }
+
+  const rows = artifactPaths.map((filePath) => ({
+    run_id: runId,
+    browser: getArtifactBrowser(filePath),
+    artifact_kind: getArtifactKind(filePath),
+    path: filePath,
+    file_name: getFileName(filePath),
+    extension: path.extname(filePath).replace(/^\./, '') || null,
+    source_url: null
+  }));
+
+  const { error } = await client.from('qauto_test_run_artifacts').insert(rows);
+  if (error) {
+    throw new Error(`failed to persist test run artifacts: ${error.message}`);
+  }
+};
+
+const persistRunLogToSupabase = async (entry: {
+  runId: string;
+  logType: 'log' | 'status';
+  stream?: 'stdout' | 'stderr';
+  message: string;
+  timestamp: string;
+}): Promise<void> => {
+  if (!supabase) {
+    return;
+  }
+
+  const client = ensureSupabase();
+  const { error } = await client.from('qauto_test_run_logs').insert({
+    run_id: entry.runId,
+    log_type: entry.logType,
+    stream: entry.stream ?? null,
+    message: entry.message,
+    timestamp: entry.timestamp
+  });
+
+  if (error) {
+    throw new Error(`failed to persist test run log: ${error.message}`);
+  }
 };
 
 const mapRun = (row: Record<string, string | number | null>): RunRecord => ({
@@ -188,6 +323,8 @@ export const runRepo = {
       consoleLogs: JSON.stringify(run.consoleLogs),
       networkFailures: JSON.stringify(run.networkFailures)
     });
+
+    void persistRunToSupabase(run);
   },
 
   update(id: string, patch: Partial<RunRecord>): void {
@@ -216,6 +353,8 @@ export const runRepo = {
       consoleLogs: JSON.stringify(next.consoleLogs),
       networkFailures: JSON.stringify(next.networkFailures)
     });
+
+    void persistRunToSupabase(next);
   },
 
   byId(id: string): RunRecord | null {
@@ -250,5 +389,26 @@ export const runRepo = {
       failed: row.failed ?? 0,
       running: row.running ?? 0
     };
+  },
+  persistArtifacts(runId: string, artifactDir: string): void {
+    void persistArtifactsToSupabase(runId, artifactDir);
+  },
+  persistLog(entry: {
+    runId: string;
+    logType: 'log' | 'status';
+    stream?: 'stdout' | 'stderr';
+    message: string;
+    timestamp: string;
+  }): void {
+    void persistRunLogToSupabase(entry);
+  },
+  attachMetadata(id: string, metadata: RunMetadata): void {
+    const current = this.byId(id);
+    if (!current) {
+      return;
+    }
+
+    const next = { ...current, metadata };
+    void persistRunToSupabase(next);
   }
 };
