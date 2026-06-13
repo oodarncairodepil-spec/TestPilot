@@ -31,6 +31,20 @@ jobs:
           git -C "${REPO_DIR}" reset --hard origin/main
           git -C "${REPO_DIR}" clean -fd
 
+      - name: Ensure frontend env file exists
+        shell: bash
+        env:
+          REPO_DIR: /home/xghrtkl/TestPilot
+        run: |
+          set -euo pipefail
+          ENV_FILE="${REPO_DIR}/.env"
+          if [ ! -f "${ENV_FILE}" ]; then
+            cat > "${ENV_FILE}" <<ENV
+NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
+NEXT_PUBLIC_WS_BASE_URL=ws://localhost:4000
+ENV
+          fi
+
       - name: Rebuild and restart services
         shell: bash
         run: |
