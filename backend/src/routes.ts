@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { getBufferedLogs } from './logHub.js';
 import { runRepo, scriptRepo } from './db.js';
 import { runQueue } from './services/runQueue.js';
-import { RunRecord, ScriptRecord } from './types.js';
+import { RunMetadata, RunRecord, ScriptRecord } from './types.js';
 
 const upload = multer();
 const router = Router();
@@ -202,7 +202,7 @@ router.get('/api/run/:id', (req, res) => {
 
   if (!metadata && fs.existsSync(metadataPath)) {
     try {
-      metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8')) as RunRecord['metadata'];
+      metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8')) as RunMetadata | null;
       if (metadata) {
         runRepo.attachMetadata(run.id, metadata);
       }
