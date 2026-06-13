@@ -1,0 +1,53 @@
+name: Auto Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to deploy"
+        required: false
+        default: "main"
+
+concurrency:
+  group: auto-deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    env:
+      APP_DIR: /home/xghrtkl/TestPilot
+      DEPLOY_BRANCH: ${{ github.event.inputs.branch || github.ref_name }}
+      DEPLOY_MODE: build
+      DEPLOY_SERVICES: "frontend backend"
+      HEALTHCHECK_URLS: "http://127.0.0.1:4000/healthz,http://127.0.0.1:3002"
+      HEALTHCHECK_RETRIES: "20"
+      HEALTHCHECK_INTERVAL_SEC: "3"
+      ROLLBACK_ON_FAILURE: "true"
+    steps:
+      - name: Validate host repo path
+        run: |
+          if [ ! -d "${APP_DIR}" ]; then
+            echo "APP_DIR does not exist: ${APP_DIR}" >&2
+            exit 1
+          fi
+
+      - name: Deploy latest commit
+        run: |
+          bash "${APP_DIR}/scripts/deploy.sh"
+
+      - name: Show running services
+        if: always()
+        run: |
+          cd "${APP_DIR}"
+          docker compose ps
+
+      - name: Show recent logs on failure
+        if: failure()
+        run: |
+          cd "${APP_DIR}"
+          docker compose logs --tail=200 frontend backend

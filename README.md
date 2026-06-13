@@ -88,3 +88,53 @@ Current architecture keeps script management, run queue, and execution isolated 
 - Jira bug ticket creation
 - CI/PR webhooks and reporting integrations
 
+
+## GitHub Auto Deploy (Self-Hosted Runner)
+
+This repo includes:
+
+- `.github/workflows/auto-deploy.yml`
+- `scripts/deploy.sh`
+
+How it works:
+
+1. On push to `main`, GitHub Actions runs on a self-hosted runner with labels:
+   - `self-hosted`, `linux`, `x64`, `testpilot`
+2. The job executes `scripts/deploy.sh` on the host machine.
+3. Script pulls latest `main` and recreates `frontend` and `backend` containers.
+
+Required host setup:
+
+1. Install and register a self-hosted GitHub Actions runner on your server.
+2. Add runner label `testpilot`.
+3. Ensure deployed repo path is `/home/xghrtkl/TestPilot` (or update `APP_DIR` in workflow).
+4. Ensure runner user can run Docker commands (`docker compose ...`).
+
+Manual deploy option:
+
+- GitHub Actions -> `Auto Deploy` -> `Run workflow` -> choose branch input.
+
+### Safer Deploy Options
+
+The deploy script supports two modes via `DEPLOY_MODE`:
+
+- `build` (default): builds local Dockerfiles (`docker compose build ...`)
+- `pull`: pulls registry images (`docker compose pull ...`)
+
+Health checks and rollback are enabled through env vars in workflow:
+
+- `HEALTHCHECK_URLS`: comma-separated URLs to verify after deploy
+- `HEALTHCHECK_RETRIES`: retry attempts per URL
+- `HEALTHCHECK_INTERVAL_SEC`: delay between retries
+- `ROLLBACK_ON_FAILURE`: `true|false`
+
+Rollback behavior:
+
+1. Script records the pre-deploy commit.
+2. If health checks fail, script runs `git reset --hard <previous-commit>`.
+3. It redeploys and re-runs health checks.
+
+To use registry images, set in `.github/workflows/auto-deploy.yml`:
+
+- `DEPLOY_MODE: pull`
+- `DEPLOY_SERVICES` to your registry-backed service names.
