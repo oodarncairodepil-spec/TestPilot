@@ -47,10 +47,25 @@ jobs:
 
       - name: Rebuild and restart services
         shell: bash
+        env:
+          COMPOSE_FILE: /home/xghrtkl/TestPilot/docker-compose.yml
         run: |
           set -euo pipefail
-          docker compose -f /home/xghrtkl/TestPilot/docker-compose.yml build
-          docker compose -f /home/xghrtkl/TestPilot/docker-compose.yml up -d --remove-orphans
+
+          # Stop the current stack first so host ports can be re-bound cleanly.
+          docker compose -p testpilot -f "${COMPOSE_FILE}" down --remove-orphans || true
+
+          # Remove legacy fixed-name containers from older compose versions.
+          docker rm -f playwright-runner-backend playwright-runner-frontend 2>/dev/null || true
+
+          # If any other container is still binding deploy ports, remove it to unblock deploy.
+          CONFLICT_IDS="$(docker ps --format '{{.ID}} {{.Ports}}' | awk '/(^|,)0\.0\.0\.0:4000->|(^|,):::4000->|(^|,)0\.0\.0\.0:3002->|(^|,):::3002->/ {print $1}')"
+          if [ -n "${CONFLICT_IDS}" ]; then
+            docker rm -f ${CONFLICT_IDS}
+          fi
+
+          docker compose -p testpilot -f "${COMPOSE_FILE}" build
+          docker compose -p testpilot -f "${COMPOSE_FILE}" up -d --remove-orphans
 
       - name: Show deployed commit
         shell: bash
