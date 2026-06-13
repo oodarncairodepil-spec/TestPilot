@@ -1,0 +1,43 @@
+name: Deploy On Self-Hosted Runner
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: testpilot-self-hosted-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, x64, testpilot]
+    timeout-minutes: 30
+    steps:
+      - name: Sync server repo to origin/main
+        shell: bash
+        env:
+          REPO_DIR: /home/xghrtkl/TestPilot
+        run: |
+          set -euo pipefail
+          if [ ! -d "${REPO_DIR}/.git" ]; then
+            echo "Missing deploy repo at ${REPO_DIR}" >&2
+            exit 1
+          fi
+
+          git -C "${REPO_DIR}" fetch --prune origin main
+          git -C "${REPO_DIR}" checkout main
+          # Deployment mirror: overwrite local uncommitted code to match GitHub main.
+          git -C "${REPO_DIR}" reset --hard origin/main
+          git -C "${REPO_DIR}" clean -fd
+
+      - name: Rebuild and restart services
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f /home/xghrtkl/TestPilot/docker-compose.yml build
+          docker compose -f /home/xghrtkl/TestPilot/docker-compose.yml up -d --remove-orphans
+
+      - name: Show deployed commit
+        shell: bash
+        run: git -C /home/xghrtkl/TestPilot rev-parse --short HEAD
