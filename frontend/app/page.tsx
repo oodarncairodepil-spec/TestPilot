@@ -1,14 +1,16 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { Copy, Globe, LayoutDashboard, ListChecks, MousePointerClick, PanelLeftClose, PanelLeftOpen, Play, Save, Square, TestTube2, Trash2, WandSparkles } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { AlertCircle, Copy, Globe, LayoutDashboard, ListChecks, MousePointerClick, PanelLeftClose, PanelLeftOpen, Pencil, Play, Save, TestTube2, Trash2, WandSparkles } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 
 const Editor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
@@ -26,23 +28,6 @@ type Run = {
   createdAt: string;
 };
 
-type RunDetails = Run & {
-  startTime: string | null;
-  endTime: string | null;
-  finalUrl: string;
-  consoleLogs: string[];
-  networkFailures: string[];
-  metadata: {
-    screenshots: string[];
-    videos: string[];
-    traces: string[];
-  } | null;
-};
-
-type ArtifactsResponse = {
-  files: { path: string; url: string }[];
-};
-
 type BuilderSelector = {
   tag: string;
   text: string;
@@ -54,57 +39,31 @@ type BuilderSelector = {
   url: string;
   timestamp: string;
 };
-
-
-type ArtifactKind = 'image' | 'video' | 'other';
 type LeftMenu = 'dashboard' | 'scenario' | 'builder' | 'test-result';
 type BuilderMode = 'browse' | 'capture';
 
-const getArtifactKind = (filePath: string): ArtifactKind => {
-  const lower = filePath.toLowerCase();
-  if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(lower)) return 'image';
-  if (/\.(mp4|webm|ogg|mov)$/.test(lower)) return 'video';
-  return 'other';
+const statusClassMap: Record<Run['status'], string> = {
+  queued: 'border-amber-500/30 bg-amber-500/15 text-amber-200 hover:bg-amber-500/15',
+  running: 'border-sky-500/30 bg-sky-500/15 text-sky-200 hover:bg-sky-500/15',
+  passed: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/15',
+  failed: 'border-rose-500/30 bg-rose-500/15 text-rose-200 hover:bg-rose-500/15',
+  timeout: 'border-rose-500/30 bg-rose-500/15 text-rose-200 hover:bg-rose-500/15',
+  cancelled: 'border-slate-500/30 bg-slate-500/20 text-slate-200 hover:bg-slate-500/20'
 };
 
-const statusClassMap: Record<Run['status'], string> = {
-  queued: 'bg-amber-100 text-amber-800 hover:bg-amber-100',
-  running: 'bg-amber-100 text-amber-800 hover:bg-amber-100',
-  passed: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
-  failed: 'bg-red-100 text-red-800 hover:bg-red-100',
-  timeout: 'bg-red-100 text-red-800 hover:bg-red-100',
-  cancelled: 'bg-red-100 text-red-800 hover:bg-red-100'
-};
+const menuItems: { id: LeftMenu; label: string; icon: typeof LayoutDashboard; description: string }[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, description: 'Overview, volume, and quick health' },
+  { id: 'scenario', label: 'Scenario', icon: ListChecks, description: 'Create, edit, and run test scripts' },
+  { id: 'builder', label: 'Builder', icon: WandSparkles, description: 'Open URLs and collect selector context' },
+  { id: 'test-result', label: 'Test Result', icon: TestTube2, description: 'Review runs, logs, and artifacts' }
+];
 
 const resolveApiBase = (): string => {
-  if (typeof window !== 'undefined') {
-    const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
-    const isBadLocal =
-      configured?.includes('localhost') &&
-      window.location.hostname !== 'localhost' &&
-      window.location.hostname !== '127.0.0.1';
-    if (configured && !isBadLocal) {
-      return configured;
-    }
-    return `${window.location.protocol}//${window.location.hostname}:4000`;
-  }
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000';
+  return process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://x300.taila1632d.ts.net:4000';
 };
 
 const resolveWsBase = (): string => {
-  if (typeof window !== 'undefined') {
-    const configured = process.env.NEXT_PUBLIC_WS_BASE_URL;
-    const isBadLocal =
-      configured?.includes('localhost') &&
-      window.location.hostname !== 'localhost' &&
-      window.location.hostname !== '127.0.0.1';
-    if (configured && !isBadLocal) {
-      return configured;
-    }
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.hostname}:4000`;
-  }
-  return process.env.NEXT_PUBLIC_WS_BASE_URL ?? 'ws://localhost:4000';
+  return process.env.NEXT_PUBLIC_WS_BASE_URL ?? 'ws://x300.taila1632d.ts.net:4000';
 };
 
 const seededTest = `import { test, expect } from '@playwright/test';
@@ -140,6 +99,7 @@ const formatDuration = (durationMs: number | null): string => {
 const escapeTsString = (value: string): string => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
 export default function HomePage() {
+  const router = useRouter();
   const resultsPageSize = 10;
   const apiBase = useMemo(() => resolveApiBase(), []);
   const wsBase = useMemo(() => resolveWsBase(), []);
@@ -150,17 +110,7 @@ export default function HomePage() {
   const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null);
   const [scriptName, setScriptName] = useState('skorpintar-login.spec.ts');
   const [scriptContent, setScriptContent] = useState(seededTest);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [selectedRun, setSelectedRun] = useState<RunDetails | null>(null);
   const [resultsPage, setResultsPage] = useState(1);
-  const [artifacts, setArtifacts] = useState<ArtifactsResponse | null>(null);
-  const [liveLogs, setLiveLogs] = useState('');
-  const [isStoppingRun, setIsStoppingRun] = useState(false);
-  const [previewArtifact, setPreviewArtifact] = useState<{
-    path: string;
-    url: string;
-    kind: ArtifactKind;
-  } | null>(null);
 
   const [builderInputUrl, setBuilderInputUrl] = useState('https://saas.beta.skorpintar.com/');
   const [builderMode, setBuilderMode] = useState<BuilderMode>('browse');
@@ -169,6 +119,13 @@ export default function HomePage() {
   const [isMenuCollapsed, setIsMenuCollapsed] = useState(false);
   const [builderCaptured, setBuilderCaptured] = useState<BuilderSelector[]>([]);
   const [scenarioSearch, setScenarioSearch] = useState('');
+  const [isScenarioDropdownOpen, setIsScenarioDropdownOpen] = useState(false);
+  const [isEditingScenarioName, setIsEditingScenarioName] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [scriptsError, setScriptsError] = useState<string | null>(null);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [isRunningScript, setIsRunningScript] = useState(false);
 
   const selectedScript = useMemo(
     () => scripts.find((script) => script.id === selectedScriptId) ?? null,
@@ -187,6 +144,13 @@ export default function HomePage() {
     if (!query) return scripts;
     return scripts.filter((script) => script.name.toLowerCase().includes(query) || script.id.toLowerCase().includes(query));
   }, [scripts, scenarioSearch]);
+
+  const selectedScenarioLabel = useMemo(() => {
+    if (selectedScript) {
+      return selectedScript.name;
+    }
+    return scriptName.trim() || 'Select a scenario';
+  }, [scriptName, selectedScript]);
 
   const totalResultsPages = Math.max(1, Math.ceil(runs.length / resultsPageSize));
   const pagedRuns = useMemo(() => {
@@ -207,67 +171,45 @@ export default function HomePage() {
   }, [latestCaptured]);
 
   const refreshScripts = useCallback(async () => {
-    const response = await fetch(`${apiBase}/api/scripts`);
-    const data = (await response.json()) as { items: Script[] };
-    setScripts(data.items);
-    if (!selectedScriptId && data.items.length > 0) {
-      selectScript(data.items[0]);
+    try {
+      setScriptsError(null);
+      const response = await fetch(`${apiBase}/api/scripts`);
+      if (!response.ok) {
+        throw new Error(`Unable to load scenarios (${response.status})`);
+      }
+      const data = (await response.json()) as { items: Script[] };
+      setScripts(data.items);
+      if (!selectedScriptId && data.items.length > 0) {
+        selectScript(data.items[0]);
+      }
+    } catch (error) {
+      setScriptsError(error instanceof Error ? error.message : 'Unable to load scenarios');
     }
   }, [selectedScriptId, apiBase, selectScript]);
 
   const refreshRuns = useCallback(async () => {
-    const response = await fetch(`${apiBase}/api/runs`);
-    const data = (await response.json()) as { items: Run[]; stats: typeof stats };
-    setRuns(data.items);
-    setStats(data.stats);
+    try {
+      setRunsError(null);
+      const response = await fetch(`${apiBase}/api/runs`);
+      if (!response.ok) {
+        throw new Error(`Unable to load runs (${response.status})`);
+      }
+      const data = (await response.json()) as { items: Run[]; stats: typeof stats };
+      setRuns(data.items);
+      setStats(data.stats);
+    } catch (error) {
+      setRunsError(error instanceof Error ? error.message : 'Unable to load runs');
+    }
   }, [apiBase]);
-
-  const loadRunDetails = useCallback(
-    async (runId: string) => {
-      const [runRes, artifactsRes] = await Promise.all([
-        fetch(`${apiBase}/api/run/${runId}`),
-        fetch(`${apiBase}/api/artifacts/${runId}`)
-      ]);
-      setSelectedRun((await runRes.json()) as RunDetails);
-      setArtifacts((await artifactsRes.json()) as ArtifactsResponse);
-    },
-    [apiBase]
-  );
 
   useEffect(() => {
     void refreshScripts();
     void refreshRuns();
     const interval = setInterval(() => {
       void refreshRuns();
-      if (selectedRunId) {
-        void loadRunDetails(selectedRunId);
-      }
     }, 5000);
     return () => clearInterval(interval);
-  }, [loadRunDetails, refreshRuns, refreshScripts, selectedRunId]);
-
-  useEffect(() => {
-    if (!selectedRunId) return;
-    const ws = new WebSocket(`${wsBase}/ws`);
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'subscribe', runId: selectedRunId }));
-    };
-    ws.onmessage = (message) => {
-      const payload = JSON.parse(message.data as string) as {
-        type: 'log' | 'status';
-        stream?: string;
-        data: string;
-      };
-      if (payload.type === 'log') {
-        setLiveLogs((current) => `${current}${payload.data}`);
-      }
-      if (payload.type === 'status') {
-        void refreshRuns();
-        void loadRunDetails(selectedRunId);
-      }
-    };
-    return () => ws.close();
-  }, [loadRunDetails, refreshRuns, selectedRunId, wsBase]);
+  }, [refreshRuns, refreshScripts]);
 
 
   const saveScript = async () => {
@@ -298,31 +240,32 @@ export default function HomePage() {
 
   const runScript = async () => {
     if (!selectedScript) return;
-    setLiveLogs('');
-    const response = await fetch(`${apiBase}/api/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scriptId: selectedScript.id })
-    });
-    const run = (await response.json()) as Run;
-    setSelectedRunId(run.id);
-    await refreshRuns();
-    await loadRunDetails(run.id);
-    setLeftMenu('test-result');
-  };
-
-  const stopSelectedRun = async () => {
-    if (!selectedRun || (selectedRun.status !== 'queued' && selectedRun.status !== 'running')) {
-      return;
-    }
-
-    setIsStoppingRun(true);
+    setIsRunningScript(true);
+    setRunError(null);
     try {
-      await fetch(`${apiBase}/api/run/${selectedRun.id}/stop`, { method: 'POST' });
-    } finally {
-      setIsStoppingRun(false);
+      const response = await fetch(`${apiBase}/api/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scriptId: selectedScript.id })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Unable to start run (${response.status})`);
+      }
+
+      const run = (await response.json()) as { id: string };
       await refreshRuns();
-      await loadRunDetails(selectedRun.id);
+      setLeftMenu('test-result');
+      router.push(`/run/${run.id}`);
+    } catch (error) {
+      setRunError(
+        error instanceof Error
+          ? `Unable to start the remote worker. ${error.message}`
+          : 'Unable to start the remote worker.'
+      );
+    } finally {
+      setIsRunningScript(false);
     }
   };
 
@@ -360,8 +303,12 @@ export default function HomePage() {
     }
   };
 
-  const canStopSelectedRun = selectedRun?.status === 'queued' || selectedRun?.status === 'running';
-
+  const chooseScenario = (script: Script) => {
+    selectScript(script);
+    setScenarioSearch(script.name);
+    setIsScenarioDropdownOpen(false);
+    setIsEditingScenarioName(false);
+  };
   useEffect(() => {
     if (resultsPage > totalResultsPages) {
       setResultsPage(totalResultsPages);
@@ -369,232 +316,455 @@ export default function HomePage() {
   }, [resultsPage, totalResultsPages]);
 
   return (
-    <main className="min-h-screen bg-slate-100 p-4 lg:p-6">
-      <div className={`grid gap-4 ${isMenuCollapsed ? 'lg:grid-cols-[80px_minmax(0,1fr)]' : 'lg:grid-cols-[240px_minmax(0,1fr)]'}`}>
-        <Card className="h-fit lg:sticky lg:top-6">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              {!isMenuCollapsed && <CardTitle className="text-base">Menu</CardTitle>}
-              <Button variant="ghost" size="icon" onClick={() => setIsMenuCollapsed((v) => !v)} aria-label="Toggle menu">
-                {isMenuCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Button
-              variant={leftMenu === 'dashboard' ? 'default' : 'secondary'}
-              className="w-full justify-start"
-              onClick={() => setLeftMenu('dashboard')}
-            >
-              <LayoutDashboard className={isMenuCollapsed ? "h-4 w-4" : "mr-2 h-4 w-4"} />
-              {!isMenuCollapsed && 'Dashboard'}
-            </Button>
-            <Button
-              variant={leftMenu === 'scenario' ? 'default' : 'secondary'}
-              className="w-full justify-start"
-              onClick={() => setLeftMenu('scenario')}
-            >
-              <ListChecks className={isMenuCollapsed ? "h-4 w-4" : "mr-2 h-4 w-4"} />
-              {!isMenuCollapsed && 'Scenario'}
-            </Button>
-            <Button
-              variant={leftMenu === 'builder' ? 'default' : 'secondary'}
-              className="w-full justify-start"
-              onClick={() => setLeftMenu('builder')}
-            >
-              <WandSparkles className={isMenuCollapsed ? "h-4 w-4" : "mr-2 h-4 w-4"} />
-              {!isMenuCollapsed && 'Builder'}
-            </Button>
-            <Button
-              variant={leftMenu === 'test-result' ? 'default' : 'secondary'}
-              className="w-full justify-start"
-              onClick={() => setLeftMenu('test-result')}
-            >
-              <TestTube2 className={isMenuCollapsed ? "h-4 w-4" : "mr-2 h-4 w-4"} />
-              {!isMenuCollapsed && 'Test Result'}
-            </Button>
-          </CardContent>
-        </Card>
+    <main className="min-h-screen px-4 py-6 lg:px-6">
+      <div className="mx-auto max-w-[1600px] space-y-6">
+        <div className={cn('grid gap-6', isMenuCollapsed ? 'grid-cols-[72px_minmax(0,1fr)]' : 'lg:grid-cols-[320px_minmax(0,1fr)]')}>
+          <Card className="h-fit border-white/10 bg-card/90 backdrop-blur lg:sticky lg:top-6">
+            <CardHeader className={cn('pb-4', isMenuCollapsed && 'px-3 pb-2 pt-3')}>
+              <div className={cn('flex items-center justify-between gap-3', isMenuCollapsed && 'justify-center')}>
+                {!isMenuCollapsed && (
+                  <div>
+                    <CardTitle className="text-lg">Navigation</CardTitle>
+                    <CardDescription>Jump across the workflow in one place.</CardDescription>
+                  </div>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsMenuCollapsed((v) => !v)}
+                  aria-label="Toggle menu"
+                  className={cn(
+                    isMenuCollapsed &&
+                      'relative h-12 w-12 rounded-none border-0 bg-transparent p-0 text-slate-300 hover:bg-transparent hover:text-white'
+                  )}
+                >
+                  {isMenuCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className={cn('space-y-3', isMenuCollapsed && 'px-3 pb-3 pt-0')}>
+              {menuItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = leftMenu === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setLeftMenu(item.id)}
+                    className={cn(
+                      isMenuCollapsed
+                        ? 'group relative flex h-12 w-full items-center justify-center text-left text-slate-300 transition-all'
+                        : 'group flex min-h-[52px] w-full items-center gap-3 rounded-2xl border px-3 py-2 text-left transition-all sm:min-h-[56px] sm:px-3.5 sm:py-2.5',
+                      isMenuCollapsed
+                        ? isActive
+                          ? 'text-white'
+                          : 'text-slate-300 hover:text-white'
+                        : isActive
+                          ? 'border-primary/40 bg-primary/15 text-white shadow-[0_0_0_1px_rgba(59,130,246,0.2)]'
+                          : 'border-white/5 bg-white/[0.03] text-slate-300 hover:border-white/10 hover:bg-white/[0.06]'
+                    )}
+                  >
+                    {isMenuCollapsed && (
+                      <span
+                        className={cn(
+                          'absolute left-0 top-1/2 h-6 w-px -translate-y-1/2 rounded-full transition-all',
+                          isActive ? 'bg-primary' : 'bg-transparent group-hover:bg-white/30'
+                        )}
+                      />
+                    )}
+                    <span className={cn(
+                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl',
+                      isMenuCollapsed
+                        ? isActive
+                          ? 'text-primary-foreground'
+                          : 'text-slate-200'
+                        : isActive
+                          ? 'rounded-xl bg-primary/20 text-primary-foreground'
+                          : 'rounded-xl bg-white/5 text-slate-200'
+                    )}>
+                      <Icon className="h-[18px] w-[18px]" />
+                    </span>
+                    {!isMenuCollapsed && (
+                      <span className="flex min-w-0 flex-1 flex-col justify-center text-left leading-tight">
+                        <span className="truncate text-sm font-medium">{item.label}</span>
+                        <span className="mt-1 truncate text-xs text-slate-400">{item.description}</span>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </CardContent>
+          </Card>
 
-        <section className="space-y-4">
+          <section className="space-y-6">
           {leftMenu === 'dashboard' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Dashboard</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
+              <Card className="border-white/10 bg-card/90 backdrop-blur">
+                <CardHeader>
+                  <CardTitle>Dashboard</CardTitle>
+                  <CardDescription>High-level run health, throughput, and action shortcuts.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="rounded-3xl border border-sky-400/20 bg-sky-500/10 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-200">Active API Base URL</p>
+                    <p className="mt-3 break-all text-sm font-medium text-white">{apiBase}</p>
+                    <p className="mt-4 text-xs font-semibold uppercase tracking-[0.24em] text-sky-200">Active WebSocket Base URL</p>
+                    <p className="mt-3 break-all text-sm font-medium text-white">{wsBase}</p>
+                    <p className="mt-2 text-sm text-sky-100/80">Use this value to confirm whether the frontend is pointing to localhost or the remote host.</p>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {[
+                      {
+                        label: 'Execution throughput',
+                        value: `${stats.total}`,
+                        caption: 'Total runs processed in this workspace',
+                        tone: 'from-sky-500/20 to-blue-500/5'
+                      },
+                      {
+                        label: 'Success ratio',
+                        value: stats.total ? `${Math.round((stats.passed / stats.total) * 100)}%` : '0%',
+                        caption: 'Share of successful runs across all executions',
+                        tone: 'from-emerald-500/20 to-emerald-500/5'
+                      },
+                      {
+                        label: 'Failures detected',
+                        value: `${stats.failed}`,
+                        caption: 'Runs that need investigation or reruns',
+                        tone: 'from-rose-500/20 to-rose-500/5'
+                      },
+                      {
+                        label: 'Currently active',
+                        value: `${stats.running}`,
+                        caption: 'Runs streaming live execution status right now',
+                        tone: 'from-amber-500/20 to-amber-500/5'
+                      }
+                    ].map((item) => (
+                      <div key={item.label} className={cn('rounded-3xl border border-white/10 bg-gradient-to-br p-5', item.tone)}>
+                        <p className="text-sm text-slate-300">{item.label}</p>
+                        <p className="mt-3 text-4xl font-semibold text-white">{item.value}</p>
+                        <p className="mt-3 text-sm text-slate-400">{item.caption}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+                      <p className="text-sm font-medium text-white">Recommended next step</p>
+                      <p className="mt-2 text-sm text-slate-400">
+                        Use Scenario to edit a test, then send it straight into execution and review its artifacts from Test Result.
+                      </p>
+                    </div>
+                    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+                      <p className="text-sm font-medium text-white">Builder utility</p>
+                      <p className="mt-2 text-sm text-slate-400">
+                        Open external URLs in a cleaner utility view while keeping the main command center focused on execution.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-white/10 bg-card/90 backdrop-blur">
+                <CardHeader>
+                  <CardTitle>Workflow</CardTitle>
+                  <CardDescription>Designed for script authoring, execution, and inspection.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
                   {[
-                    ['Total Runs', stats.total],
-                    ['Passed Runs', stats.passed],
-                    ['Failed Runs', stats.failed],
-                    ['Running Runs', stats.running]
-                  ].map(([label, value]) => (
-                    <div key={label} className="rounded-lg border bg-card p-4">
-                      <p className="text-xs text-muted-foreground">{label}</p>
-                      <p className="mt-2 text-2xl font-semibold">{value}</p>
+                    ['1', 'Choose a scenario', 'Search or switch between stored test scripts.'],
+                    ['2', 'Refine the script', 'Use the Monaco editor with a cleaner authoring surface.'],
+                    ['3', 'Run and monitor', 'Start execution and stream logs from the results area.'],
+                    ['4', 'Inspect outputs', 'Preview screenshots, videos, and downloadable artifacts.']
+                  ].map(([step, title, text]) => (
+                    <div key={step} className="flex gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary-foreground">
+                        {step}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-white">{title}</p>
+                        <p className="mt-1 text-sm text-slate-400">{text}</p>
+                      </div>
                     </div>
                   ))}
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {leftMenu === 'scenario' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Scenario</CardTitle>
+            <Card className="border-white/10 bg-card/90 backdrop-blur">
+              <CardHeader className="space-y-4 pb-6">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                  <div>
+                    <CardTitle>Scenario Studio</CardTitle>
+                    <CardDescription>Create, search, refine, and launch Playwright test scenarios from one surface.</CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="destructive" onClick={() => setIsDeleteConfirmOpen(true)}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </Button>
+                    <Button onClick={saveScript}>
+                      <Save className="mr-2 h-4 w-4" />
+                      Save scenario
+                    </Button>
+                    <Button variant="secondary" onClick={runScript} disabled={isRunningScript || !selectedScript}>
+                      <Play className="mr-2 h-4 w-4" />
+                      {isRunningScript ? 'Starting run...' : 'Run scenario'}
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <Input value={scriptName} onChange={(e) => setScriptName(e.target.value)} />
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+                  <div className="space-y-4">
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Find scenario</p>
+                      </div>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setIsScenarioDropdownOpen((value) => !value)}
+                          className="flex h-10 w-full items-center justify-between rounded-md border border-white/10 bg-slate-950/50 px-3 py-2 text-left text-sm text-foreground"
+                        >
+                          <span className="truncate">{selectedScenarioLabel}</span>
+                          <span className="text-slate-400">▾</span>
+                        </button>
+                        {isScenarioDropdownOpen && (
+                          <div className="absolute z-20 mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl backdrop-blur">
+                            <Input
+                              value={scenarioSearch}
+                              onChange={(e) => setScenarioSearch(e.target.value)}
+                              placeholder="Search scenario by name or id"
+                              className="border-white/10 bg-slate-950/70"
+                            />
+                            <div className="mt-2 max-h-72 space-y-2 overflow-auto rounded-2xl border border-white/10 bg-slate-950/40 p-2">
+                              {filteredScripts.length === 0 && <p className="px-3 py-4 text-sm text-slate-400">No scenarios found for your search.</p>}
+                              {filteredScripts.map((script) => {
+                                const active = script.id === selectedScriptId;
+                                return (
+                                  <button
+                                    key={script.id}
+                                    type="button"
+                                    onClick={() => chooseScenario(script)}
+                                    className={cn(
+                                      'flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-all',
+                                      active ? 'bg-primary/15 text-white' : 'text-slate-300 hover:bg-white/[0.04]'
+                                    )}
+                                  >
+                                    <span className="min-w-0">
+                                      <span className="block truncate text-sm font-medium">{script.name}</span>
+                                      <span className="block text-xs text-slate-500">{script.id.slice(0, 8)}</span>
+                                    </span>
+                                    {active && <Badge className="border-primary/30 bg-primary/20 text-white">Active</Badge>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {scriptsError && (
+                        <div className="flex items-start gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span>{scriptsError}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 rounded-md border border-white/10 bg-slate-950/50 px-3 py-2">
+                      <Input
+                        value={scriptName}
+                        onChange={(e) => setScriptName(e.target.value)}
+                        readOnly={!isEditingScenarioName}
+                        className="h-auto border-0 bg-transparent px-0 py-0 text-sm shadow-none focus-visible:ring-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingScenarioName((value) => !value)}
+                        className="text-slate-400 transition hover:text-white"
+                        aria-label="Edit scenario file name"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={saveScript}>
-                    <Save className="mr-2 h-4 w-4" />
-                    Save
-                  </Button>
-                  <Button variant="secondary" onClick={runScript}>
-                    <Play className="mr-2 h-4 w-4" />
-                    Run
-                  </Button>
-                  <Button variant="destructive" onClick={deleteScript}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </Button>
-                </div>
-
-                <div className="space-y-2 rounded-md border p-3">
-                  <p className="text-xs font-medium text-muted-foreground">Scenario Selection</p>
-                  <Input
-                    value={scenarioSearch}
-                    onChange={(e) => setScenarioSearch(e.target.value)}
-                    placeholder="Search scenario by name or id"
-                  />
-                  <select
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                    value={selectedScriptId ?? ''}
-                    onChange={(e) => {
-                      const script = scripts.find((item) => item.id === e.target.value);
-                      if (!script) return;
-                      selectScript(script);
-                    }}
-                  >
-                    <option value="">Select a scenario</option>
-                    {filteredScripts.map((script) => (
-                      <option key={script.id} value={script.id}>
-                        {script.name}
-                      </option>
-                    ))}
-                  </select>
-                  {filteredScripts.length === 0 && (
-                    <p className="text-xs text-muted-foreground">No scenarios found for your search.</p>
-                  )}
-                </div>
-
-                <div className="overflow-hidden rounded-md border">
-                  <Editor
-                    height="460px"
-                    defaultLanguage="typescript"
-                    language="typescript"
-                    value={scriptContent}
-                    onChange={(value) => setScriptContent(value ?? '')}
-                    options={{
-                      minimap: { enabled: false },
-                      fontSize: 13,
-                      automaticLayout: true
-                    }}
-                  />
+                  <div className="space-y-4">
+                    {runError && (
+                      <div className="flex items-start gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-3 text-sm text-rose-100">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{runError}</span>
+                      </div>
+                    )}
+                    <div className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950/60 shadow-soft">
+                      <Editor
+                        height="620px"
+                        defaultLanguage="typescript"
+                        language="typescript"
+                        value={scriptContent}
+                        onChange={(value) => setScriptContent(value ?? '')}
+                        options={{
+                          minimap: { enabled: false },
+                          fontSize: 13,
+                          automaticLayout: true,
+                          roundedSelection: true,
+                          scrollBeyondLastLine: false,
+                          padding: { top: 18, bottom: 18 }
+                        }}
+                        theme="vs-dark"
+                      />
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           )}
 
+          {isDeleteConfirmOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setIsDeleteConfirmOpen(false)}>
+              <Card className="w-full max-w-md border-white/10 bg-slate-950" onClick={(event) => event.stopPropagation()}>
+                <CardHeader>
+                  <CardTitle>Delete scenario?</CardTitle>
+                  <CardDescription>This action removes the selected scenario from the list.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex justify-end gap-2">
+                  <Button variant="secondary" onClick={() => setIsDeleteConfirmOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={async () => {
+                      setIsDeleteConfirmOpen(false);
+                      await deleteScript();
+                    }}
+                  >
+                    Confirm Delete
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {leftMenu === 'builder' && (
-            <Card>
+            <Card className="border-white/10 bg-card/90 backdrop-blur">
               <CardHeader>
-                <CardTitle className="text-base">Builder</CardTitle>
+                <CardTitle>Builder Utility</CardTitle>
+                <CardDescription>Open target pages, keep references handy, and organize captured selector metadata.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
-                  <Input value={builderInputUrl} onChange={(e) => setBuilderInputUrl(e.target.value)} placeholder="https://saas.beta.skorpintar.com/" />
-                  <Button variant={builderMode === 'browse' ? 'default' : 'secondary'} onClick={() => setBuilderMode('browse')}>
-                    <Globe className="mr-2 h-4 w-4" />
-                    Browse
-                  </Button>
-                  <Button variant={builderMode === 'capture' ? 'default' : 'secondary'} onClick={() => setBuilderMode('capture')}>
-                    <MousePointerClick className="mr-2 h-4 w-4" />
-                    Capture
-                  </Button>
-                  <Button onClick={openBuilderTarget}>Open URL</Button>
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                  <div className="space-y-4 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                    <div>
+                      <p className="text-sm font-medium text-white">Target page launcher</p>
+                      <p className="mt-1 text-sm text-slate-400">Switch between browse and capture context before opening a target URL.</p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]">
+                      <Input value={builderInputUrl} onChange={(e) => setBuilderInputUrl(e.target.value)} placeholder="https://saas.beta.skorpintar.com/" className="border-white/10 bg-slate-950/50" />
+                      <Button variant={builderMode === 'browse' ? 'default' : 'secondary'} onClick={() => setBuilderMode('browse')}>
+                        <Globe className="mr-2 h-4 w-4" />
+                        Browse
+                      </Button>
+                      <Button variant={builderMode === 'capture' ? 'default' : 'secondary'} onClick={() => setBuilderMode('capture')}>
+                        <MousePointerClick className="mr-2 h-4 w-4" />
+                        Capture
+                      </Button>
+                      <Button onClick={openBuilderTarget}>Open URL</Button>
+                    </div>
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/30 p-4 text-sm text-slate-400">
+                      Open your target URL in a separate tab for normal interaction. Capture tooling has been removed from this app, so this space now focuses on reference management.
+                    </div>
+                    {builderStatus && <p className="text-sm font-medium text-primary-foreground">{builderStatus}</p>}
+                    {builderLastOpenedUrl && (
+                      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Last opened URL</p>
+                        <p className="mt-2 break-all text-sm text-slate-200">{builderLastOpenedUrl}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-white">Generated snippet</p>
+                        <p className="mt-1 text-sm text-slate-400">Quick-copy helper from the latest captured selector metadata.</p>
+                      </div>
+                      <Badge className="border-white/10 bg-white/5 text-slate-200">Latest</Badge>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm text-slate-100">
+                      <pre className="overflow-auto whitespace-pre-wrap break-words">{generatedSnippet || 'No snippet available yet.'}</pre>
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={() => void copyToClipboard(generatedSnippet || '')} disabled={!generatedSnippet}>
+                      <Copy className="mr-2 h-4 w-4" />
+                      Copy Snippet
+                    </Button>
+                  </div>
                 </div>
 
-                <p className="text-xs text-muted-foreground">
-                  Open your target URL in a separate tab for normal interaction. Capture tooling has been removed from this app.
-                </p>
-
-                {builderStatus && <p className="text-xs font-medium text-primary">{builderStatus}</p>}
-                {builderLastOpenedUrl && <p className="text-xs text-muted-foreground">Target URL: {builderLastOpenedUrl}</p>}
-
-                <div className="space-y-2 rounded-md border p-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Captured Selectors ({builderCaptured.length})</h3>
+                <div className="space-y-4 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-white">Captured Selectors</p>
+                      <p className="mt-1 text-sm text-slate-400">Stored references for CSS and XPath details.</p>
+                    </div>
                     <Button variant="secondary" size="sm" onClick={() => setBuilderCaptured([])}>
                       Clear
                     </Button>
                   </div>
 
-                  {latestCaptured && generatedSnippet && (
-                    <div className="space-y-2 rounded-md bg-slate-900 p-3 text-xs text-slate-100">
-                      <p className="font-semibold">Generated snippet (latest capture)</p>
-                      <pre className="overflow-auto">{generatedSnippet}</pre>
-                      <Button variant="secondary" size="sm" onClick={() => void copyToClipboard(generatedSnippet)}>
-                        <Copy className="mr-2 h-3.5 w-3.5" />
-                        Copy Snippet
-                      </Button>
-                    </div>
-                  )}
-
-                  <div className="max-h-[420px] space-y-2 overflow-auto">
+                  <div className="grid gap-3 lg:grid-cols-2">
                     {builderCaptured.slice(0, 30).map((item, index) => (
-                      <div key={`${item.timestamp}-${index}`} className="rounded-md border p-3 text-xs">
-                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <div key={`${item.timestamp}-${index}`} className="rounded-3xl border border-white/10 bg-slate-950/40 p-4 text-sm">
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
                           <Badge variant="secondary">{item.tag}</Badge>
-                          <span className="text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span>
-                          <span className="truncate text-muted-foreground">{item.url}</span>
+                          <span className="text-xs text-slate-500">{new Date(item.timestamp).toLocaleString()}</span>
                         </div>
-                        {item.text && <p className="mb-1 text-sm">Text: {item.text}</p>}
+                        <p className="mb-3 break-all text-sm text-slate-300">{item.url}</p>
+                        {item.text && <p className="mb-3 text-sm text-white">Text: {item.text}</p>}
                         {item.css && (
-                          <div className="mb-1 flex items-start gap-2">
-                            <code className="min-w-0 flex-1 break-all rounded bg-muted px-2 py-1">CSS: {item.css}</code>
-                            <Button variant="secondary" size="sm" onClick={() => void copyToClipboard(item.css)}>
+                          <div className="mb-3 flex items-start gap-2">
+                            <code className="min-w-0 flex-1 break-all rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-200">CSS: {item.css}</code>
+                            <Button variant="secondary" size="icon" onClick={() => void copyToClipboard(item.css)}>
                               <Copy className="h-3.5 w-3.5" />
                             </Button>
                           </div>
                         )}
                         {item.xpath && (
                           <div className="flex items-start gap-2">
-                            <code className="min-w-0 flex-1 break-all rounded bg-muted px-2 py-1">XPath: {item.xpath}</code>
-                            <Button variant="secondary" size="sm" onClick={() => void copyToClipboard(item.xpath)}>
+                            <code className="min-w-0 flex-1 break-all rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-200">XPath: {item.xpath}</code>
+                            <Button variant="secondary" size="icon" onClick={() => void copyToClipboard(item.xpath)}>
                               <Copy className="h-3.5 w-3.5" />
                             </Button>
                           </div>
                         )}
                       </div>
                     ))}
-                    {builderCaptured.length === 0 && <p className="text-xs text-muted-foreground">No captured selectors yet.</p>}
                   </div>
+
+                  {builderCaptured.length === 0 && (
+                    <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/30 p-8 text-center text-sm text-slate-400">
+                      No captured selectors yet.
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
           )}
 
           {leftMenu === 'test-result' && (
-            <Card>
+            <Card className="border-white/10 bg-card/90 backdrop-blur">
               <CardHeader>
-                <CardTitle className="text-base">Test Result</CardTitle>
+                <CardTitle>Test Result Center</CardTitle>
+                <CardDescription>Track run history, stream logs, and inspect screenshots or video artifacts.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <Table>
+              <CardContent className="space-y-6">
+                {runsError && (
+                  <div className="flex items-start gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-3 text-sm text-rose-100">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{runsError}</span>
+                  </div>
+                )}
+                <div className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950/30">
+                  <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Run ID</TableHead>
@@ -606,7 +776,13 @@ export default function HomePage() {
                   </TableHeader>
                   <TableBody>
                     {pagedRuns.map((run) => (
-                      <TableRow key={run.id} className="cursor-pointer" onClick={() => setSelectedRunId(run.id)}>
+                      <TableRow
+                        key={run.id}
+                        className="cursor-pointer"
+                        onClick={() => {
+                          window.location.href = `/run/${run.id}`;
+                        }}
+                      >
                         <TableCell>{run.id.slice(0, 8)}</TableCell>
                         <TableCell>{run.scriptName}</TableCell>
                         <TableCell>
@@ -617,9 +793,10 @@ export default function HomePage() {
                       </TableRow>
                     ))}
                   </TableBody>
-                </Table>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
+                  </Table>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                  <p className="text-sm text-slate-400">
                     Showing {(resultsPage - 1) * resultsPageSize + 1}-{Math.min(resultsPage * resultsPageSize, runs.length)} of {runs.length}
                   </p>
                   <div className="flex items-center gap-1">
@@ -646,83 +823,11 @@ export default function HomePage() {
                     </Button>
                   </div>
                 </div>
-
-                {selectedRun && (
-                  <div className="space-y-3 rounded-md border p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-semibold">Result Viewer</h3>
-                      {canStopSelectedRun && (
-                        <Button variant="destructive" onClick={stopSelectedRun} disabled={isStoppingRun}>
-                          <Square className="mr-2 h-4 w-4" />
-                          {isStoppingRun ? 'Stopping...' : 'Stop Run'}
-                        </Button>
-                      )}
-                    </div>
-
-                    <div className="grid gap-2 text-sm sm:grid-cols-2">
-                      <p>Status: {selectedRun.status}</p>
-                      <p>Execution Time: {formatDuration(selectedRun.durationMs)}</p>
-                      <p>Start Time: {selectedRun.startTime ?? '-'}</p>
-                      <p>End Time: {selectedRun.endTime ?? '-'}</p>
-                      <p className="sm:col-span-2">Final URL: {selectedRun.finalUrl || '-'}</p>
-                      <p>Console Logs: {selectedRun.consoleLogs.length}</p>
-                      <p>Network Errors: {selectedRun.networkFailures.length}</p>
-                    </div>
-
-                    <p className="text-xs text-muted-foreground">Open `dashboard-loaded.png` or `video.webm` from artifacts.</p>
-
-                    <pre className="max-h-64 overflow-auto rounded-md bg-slate-900 p-3 text-xs text-slate-100">{liveLogs || 'No live logs yet.'}</pre>
-
-                    {artifacts && (
-                      <div className="space-y-1">
-                        {artifacts.files.map((file) => {
-                          const kind = getArtifactKind(file.path);
-                          const url = apiBase + file.url;
-                          return (
-                            <button
-                              key={file.path}
-                              type="button"
-                              className="block w-full rounded-sm px-2 py-1 text-left text-sm text-primary hover:bg-muted"
-                              onClick={() => {
-                                if (kind === 'other') {
-                                  window.open(url, '_blank', 'noopener,noreferrer');
-                                  return;
-                                }
-                                setPreviewArtifact({ path: file.path, url, kind });
-                              }}
-                            >
-                              {file.path}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {previewArtifact && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setPreviewArtifact(null)}>
-                    <Card className="max-h-[90vh] w-full max-w-6xl overflow-auto" onClick={(event) => event.stopPropagation()}>
-                      <CardHeader className="flex-row items-center justify-between space-y-0">
-                        <CardTitle className="text-sm">{previewArtifact.path}</CardTitle>
-                        <Button variant="secondary" onClick={() => setPreviewArtifact(null)}>
-                          Close
-                        </Button>
-                      </CardHeader>
-                      <CardContent>
-                        {previewArtifact.kind === 'image' ? (
-                          <img className="max-h-[75vh] w-full rounded-md bg-slate-900 object-contain" src={previewArtifact.url} alt={previewArtifact.path} />
-                        ) : (
-                          <video className="max-h-[75vh] w-full rounded-md bg-slate-900 object-contain" src={previewArtifact.url} controls autoPlay />
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
-                )}
               </CardContent>
             </Card>
           )}
         </section>
+        </div>
       </div>
     </main>
   );
