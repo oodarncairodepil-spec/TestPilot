@@ -91,6 +91,15 @@ test('skorpintar login', async ({ page }, testInfo) => {
   await page.waitForTimeout(5_000);
 });`;
 
+const newScenarioTemplateName = 'new-scenario.spec.ts';
+
+const newScenarioTemplateContent = `import { test, expect } from '@playwright/test';
+
+test('new scenario', async ({ page }) => {
+  await page.goto('https://example.com');
+  await expect(page).toHaveURL('https://example.com');
+});`;
+
 const formatDuration = (durationMs: number | null): string => {
   if (!durationMs) return '-';
   return `${(durationMs / 1000).toFixed(2)}s`;
@@ -126,6 +135,8 @@ export default function HomePage() {
   const [runsError, setRunsError] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunningScript, setIsRunningScript] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSavingScript, setIsSavingScript] = useState(false);
 
   const selectedScript = useMemo(
     () => scripts.find((script) => script.id === selectedScriptId) ?? null,
@@ -213,20 +224,29 @@ export default function HomePage() {
 
 
   const saveScript = async () => {
-    if (selectedScript) {
-      await fetch(`${apiBase}/api/scripts/${selectedScript.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: scriptName, content: scriptContent })
-      });
-    } else {
-      await fetch(`${apiBase}/api/scripts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: scriptName, content: scriptContent })
-      });
+    setIsSavingScript(true);
+    setSaveError(null);
+    try {
+      const response = await fetch(
+        selectedScript ? `${apiBase}/api/scripts/${selectedScript.id}` : `${apiBase}/api/scripts`,
+        {
+          method: selectedScript ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: scriptName, content: scriptContent })
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Unable to save scenario (${response.status})`);
+      }
+
+      await refreshScripts();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Unable to save scenario');
+    } finally {
+      setIsSavingScript(false);
     }
-    await refreshScripts();
   };
 
   const deleteScript = async () => {
@@ -308,6 +328,18 @@ export default function HomePage() {
     setScenarioSearch(script.name);
     setIsScenarioDropdownOpen(false);
     setIsEditingScenarioName(false);
+  };
+
+  const createNewScenario = () => {
+    setSelectedScriptId(null);
+    setScriptName(newScenarioTemplateName);
+    setScriptContent(newScenarioTemplateContent);
+    setScenarioSearch('');
+    setIsScenarioDropdownOpen(false);
+    setIsEditingScenarioName(true);
+    setSaveError(null);
+    setRunError(null);
+    setLeftMenu('scenario');
   };
   useEffect(() => {
     if (resultsPage > totalResultsPages) {
@@ -499,13 +531,16 @@ export default function HomePage() {
                     <CardDescription>Create, search, refine, and launch Playwright test scenarios from one surface.</CardDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" onClick={createNewScenario}>
+                      New scenario
+                    </Button>
                     <Button variant="destructive" onClick={() => setIsDeleteConfirmOpen(true)}>
                       <Trash2 className="mr-2 h-4 w-4" />
                       Delete
                     </Button>
-                    <Button onClick={saveScript}>
+                    <Button onClick={saveScript} disabled={isSavingScript}>
                       <Save className="mr-2 h-4 w-4" />
-                      Save scenario
+                      {isSavingScript ? 'Saving...' : 'Save scenario'}
                     </Button>
                     <Button variant="secondary" onClick={runScript} disabled={isRunningScript || !selectedScript}>
                       <Play className="mr-2 h-4 w-4" />
@@ -594,6 +629,12 @@ export default function HomePage() {
                       <div className="flex items-start gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-3 text-sm text-rose-100">
                         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                         <span>{runError}</span>
+                      </div>
+                    )}
+                    {saveError && (
+                      <div className="flex items-start gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-3 text-sm text-rose-100">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{saveError}</span>
                       </div>
                     )}
                     <div className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950/60 shadow-soft">
