@@ -9,6 +9,20 @@ export interface ScriptRecord {
   updatedAt: string;
 }
 
+export interface FlowStepRecord {
+  id: string;
+  flowId: string;
+  kind: string;
+  value: string | null;
+  locators: unknown[];
+  meta: Record<string, unknown> | null;
+  title: string | null;
+  expectedResult: Record<string, unknown> | null;
+  typeDelayMs: number | null;
+  orderIndex: number | null;
+  createdAt: string;
+}
+
 export interface RunRecord {
   id: string;
   scriptId: string;

@@ -17,6 +17,8 @@ type Run = {
 };
 
 type RunDetails = Run & {
+  scriptId?: string;
+  scriptContent?: string | null;
   startTime: string | null;
   endTime: string | null;
   finalUrl: string;
@@ -27,6 +29,20 @@ type RunDetails = Run & {
     videos: string[];
     traces: string[];
   } | null;
+};
+
+type FlowStep = {
+  id: string;
+  flowId: string;
+  kind: string;
+  value: string | null;
+  locators: unknown[];
+  meta: Record<string, unknown> | null;
+  title: string | null;
+  expectedResult: Record<string, unknown> | null;
+  typeDelayMs: number | null;
+  orderIndex: number | null;
+  createdAt: string;
 };
 
 type ArtifactsResponse = {
@@ -112,6 +128,7 @@ export default function RunDetailPage() {
   const wsBase = useMemo(() => resolveWsBase(), []);
   const [run, setRun] = useState<RunDetails | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactsResponse | null>(null);
+  const [steps, setSteps] = useState<FlowStep[]>([]);
   const [liveLogs, setLiveLogs] = useState('');
   const [isStoppingRun, setIsStoppingRun] = useState(false);
   const [selectedBrowserTab, setSelectedBrowserTab] = useState<BrowserTab>('chromium');
@@ -157,19 +174,6 @@ export default function RunDetailPage() {
 
   const selectedBrowserArtifacts = artifactsByBrowser[selectedBrowserTab];
 
-  useEffect(() => {
-    setSelectedArtifactPath((current) => {
-      if (!selectedBrowserArtifacts.length) {
-        return null;
-      }
-      if (current && selectedBrowserArtifacts.some((file) => file.path === current)) {
-        return current;
-      }
-      const firstPreviewable = selectedBrowserArtifacts.find((file) => getArtifactKind(file.path) !== 'other');
-      return firstPreviewable?.path ?? null;
-    });
-  }, [selectedBrowserArtifacts]);
-
   const selectedArtifact = useMemo(() => {
     if (!selectedArtifactPath) {
       return null;
@@ -207,7 +211,6 @@ export default function RunDetailPage() {
       fetch(`${apiBase}/api/artifacts/${runId}`),
       fetch(`${apiBase}/api/logs/${runId}`)
     ]);
-
     const runData = (await runRes.json()) as RunDetails;
     const artifactsData = (await artifactsRes.json()) as ArtifactsResponse;
     const logsData = (await logsRes.json()) as LogsResponse;
@@ -221,6 +224,20 @@ export default function RunDetailPage() {
       .join('');
 
     setLiveLogs(persistedLogs || `${logsData.stdout ?? ''}${logsData.stderr ?? ''}`);
+
+    if (!runData.scriptId) {
+      setSteps([]);
+      return;
+    }
+
+    const stepsRes = await fetch(`${apiBase}/api/script/${runData.scriptId}/steps`);
+    if (!stepsRes.ok) {
+      setSteps([]);
+      return;
+    }
+
+    const stepsData = (await stepsRes.json()) as { items: FlowStep[] };
+    setSteps(stepsData.items);
   }, [apiBase, runId]);
 
   useEffect(() => {
@@ -264,7 +281,7 @@ export default function RunDetailPage() {
   if (!run) {
     return (
       <main className="min-h-screen px-4 py-6 lg:px-6">
-        <div className="mx-auto max-w-[1200px]">
+      <div className="mx-auto max-w-[1600px]">
           <Card className="border-white/10 bg-card/90 backdrop-blur">
             <CardContent className="pt-6 text-sm text-slate-300">Loading run details...</CardContent>
           </Card>
@@ -277,7 +294,7 @@ export default function RunDetailPage() {
 
   return (
     <main className="min-h-screen px-4 py-6 lg:px-6">
-      <div className="mx-auto max-w-[1200px] space-y-6">
+      <div className="mx-auto max-w-[1600px] space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Button variant="secondary" onClick={() => router.push('/')}>
             <ArrowLeft className="mr-2 h-4 w-4" />
@@ -294,26 +311,79 @@ export default function RunDetailPage() {
         <Card className="border-white/10 bg-card/90 backdrop-blur">
           <CardHeader>
             <CardTitle>Run Detail</CardTitle>
-            <CardDescription>Inspect logs, screenshots, videos, and execution metadata for this run.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-1 text-sm text-slate-300">
-              <p>Run ID: <span className="text-slate-100">{run.id}</span></p>
-              <p>Script Name: <span className="text-slate-100">{run.scriptName}</span></p>
-              <p>Duration: <span className="text-slate-100">{formatDuration(run.durationMs)}</span></p>
-              <p>Created At: <span className="text-slate-100">{new Date(run.createdAt).toLocaleString()}</span></p>
-              <p>Start Time: <span className="text-slate-100">{run.startTime ?? '-'}</span></p>
-              <p>End Time: <span className="text-slate-100">{run.endTime ?? '-'}</span></p>
-              <div className="flex items-center gap-2">
-                <span>Status:</span>
-                <Badge className={statusClassMap[run.status]}>{run.status}</Badge>
+            <div className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Run ID</p>
+                <p className="mt-2 break-all text-sm text-slate-100">{run.id}</p>
               </div>
-              <p>Final URL: <span className="text-slate-100">{run.finalUrl || '-'}</span></p>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Script</p>
+                <p className="mt-2 text-sm text-slate-100">{run.scriptName}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Duration</p>
+                <p className="mt-2 text-sm text-slate-100">{formatDuration(run.durationMs)}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Status</p>
+                <div className="mt-2">
+                  <Badge className={statusClassMap[run.status]}>{run.status}</Badge>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Created</p>
+                <p className="mt-2 text-sm text-slate-100">{new Date(run.createdAt).toLocaleString()}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Start</p>
+                <p className="mt-2 break-all text-sm text-slate-100">{run.startTime ?? '-'}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">End</p>
+                <p className="mt-2 break-all text-sm text-slate-100">{run.endTime ?? '-'}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Final URL</p>
+                <p className="mt-2 break-all text-sm text-slate-100">{run.finalUrl || '-'}</p>
+              </div>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-white">Code</p>
+                <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-xs text-slate-100">
+                  <pre className="overflow-auto whitespace-pre-wrap break-words">{run.scriptContent || 'No code available for this run.'}</pre>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-white">Steps flow</p>
+                <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-xs text-slate-100">
+                  {steps.length === 0 ? (
+                    <p className="text-sm text-slate-400">No steps available for this flow.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {steps.map((step, index) => (
+                        <div key={step.id} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Step {index + 1}</span>
+                            <Badge variant="secondary">{step.kind}</Badge>
+                          </div>
+                          <p className="mt-2 text-sm text-slate-100">{step.title || step.value || 'Untitled step'}</p>
+                          {step.value && <p className="mt-2 whitespace-pre-wrap break-words text-xs text-slate-400">{step.value}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">
               <p className="text-sm font-medium text-white">Live logs</p>
-              <pre className="max-h-80 overflow-auto rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-xs text-slate-100">{liveLogs || 'No live logs yet.'}</pre>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-xs text-slate-100">{liveLogs || 'No live logs yet.'}</pre>
             </div>
 
             {artifacts && (
@@ -342,29 +412,15 @@ export default function RunDetailPage() {
                         <button
                           type="button"
                           className="flex w-full items-center justify-between px-3 py-2 text-left"
-                          onClick={async () => {
+                          onClick={() => {
                             const nextExpanded = !expandedArtifactSections[section];
                             setExpandedArtifactSections((current) => ({
                               ...current,
                               [section]: nextExpanded
                             }));
-
-                            if (!nextExpanded) {
-                              return;
-                            }
-
-                            const firstPreviewableFile = artifactSections[section].find(
-                              (file) => getArtifactKind(file.path) !== 'other'
-                            );
-
-                            if (!firstPreviewableFile) {
-                              return;
-                            }
-
-                            await loadArtifactPreview(firstPreviewableFile, apiBase, setSelectedArtifactPath, setPreviewArtifact);
                           }}
                         >
-                          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{section}(s)</span>
+                          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{section}({artifactSections[section].length})</span>
                           {expandedArtifactSections[section] ? (
                             <ChevronDown className="h-4 w-4 text-slate-500" />
                           ) : (
@@ -379,7 +435,6 @@ export default function RunDetailPage() {
                               artifactSections[section].map((file, index) => {
                                 const kind = getArtifactKind(file.path);
                                 const isSelectable = kind !== 'other';
-                                const isActive = selectedArtifactPath === file.path;
 
                                 return (
                                   <button
@@ -388,11 +443,7 @@ export default function RunDetailPage() {
                                     disabled={!isSelectable}
                                     className={
                                       isSelectable
-                                        ? `block w-full rounded-xl px-2 py-2 text-left text-xs transition ${
-                                            isActive
-                                              ? 'bg-primary/15 text-white'
-                                              : 'text-slate-200 hover:bg-white/[0.06]'
-                                          }`
+                                        ? 'block w-full rounded-xl px-2 py-2 text-left text-xs text-slate-200 transition hover:bg-white/[0.06]'
                                         : 'block w-full cursor-not-allowed rounded-xl px-2 py-2 text-left text-xs text-slate-500 opacity-60'
                                     }
                                     onClick={async () => {

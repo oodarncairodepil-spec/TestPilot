@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { config } from './config.js';
 import {
+  FlowStepRecord,
   RunArtifactRecord,
   RunLogRecord,
   RunMetadata,
@@ -385,6 +386,37 @@ export const scriptRepo = {
 
     if (error) throw new Error(`failed to list flows: ${error.message}`);
     return (data ?? []).map(mapFlowToScript);
+  },
+
+  async listSteps(flowId: string): Promise<FlowStepRecord[]> {
+    const client = ensureSupabase();
+    const { data, error } = await client
+      .from('qauto_steps')
+      .select('id,flow_id,kind,value,locators,meta,title,expected_result,type_delay_ms,order_index,created_at')
+      .eq('flow_id', flowId)
+      .order('order_index', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      throw new Error(`failed to list flow steps: ${error.message}`);
+    }
+
+    return (data ?? []).map((row) => ({
+      id: String(row.id),
+      flowId: String(row.flow_id),
+      kind: String(row.kind),
+      value: row.value ? String(row.value) : null,
+      locators: Array.isArray(row.locators) ? row.locators : [],
+      meta: row.meta && typeof row.meta === 'object' ? (row.meta as Record<string, unknown>) : null,
+      title: row.title ? String(row.title) : null,
+      expectedResult:
+        row.expected_result && typeof row.expected_result === 'object'
+          ? (row.expected_result as Record<string, unknown>)
+          : null,
+      typeDelayMs: typeof row.type_delay_ms === 'number' ? row.type_delay_ms : null,
+      orderIndex: typeof row.order_index === 'number' ? row.order_index : null,
+      createdAt: String(row.created_at)
+    }));
   }
 };
 

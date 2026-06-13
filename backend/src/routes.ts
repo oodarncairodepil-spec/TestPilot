@@ -197,24 +197,35 @@ router.get('/api/run/:id', (req, res) => {
     res.status(404).json({ error: 'run not found' });
     return;
   }
+  const metadataPath = path.join(run.artifactDir, 'metadata.json');
+  let metadata = run.metadata ?? null;
 
-  if (!run.metadata) {
-    const metadataPath = path.join(run.artifactDir, 'metadata.json');
-    if (fs.existsSync(metadataPath)) {
-      try {
-        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8')) as RunRecord['metadata'];
-        if (metadata) {
-          runRepo.attachMetadata(run.id, metadata);
-        }
-        res.json({ ...run, metadata });
-        return;
-      } catch {
-        // ignore malformed legacy metadata file and return DB data below
+  if (!metadata && fs.existsSync(metadataPath)) {
+    try {
+      metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8')) as RunRecord['metadata'];
+      if (metadata) {
+        runRepo.attachMetadata(run.id, metadata);
       }
+    } catch {
+      metadata = null;
     }
   }
 
-  res.json(run);
+  const script = fs.existsSync(path.join(config.scriptsDir, run.scriptName))
+    ? fs.readFileSync(path.join(config.scriptsDir, run.scriptName), 'utf-8')
+    : null;
+  res.json({ ...run, metadata, scriptContent: script });
+});
+
+router.get('/api/script/:id/steps', async (req, res) => {
+  const script = await scriptRepo.byId(String(req.params.id));
+  if (!script) {
+    res.status(404).json({ error: 'script not found' });
+    return;
+  }
+
+  const items = await scriptRepo.listSteps(script.id);
+  res.json({ items });
 });
 
 router.get('/api/artifacts/:id', (req, res) => {
