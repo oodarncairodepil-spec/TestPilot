@@ -4,7 +4,14 @@ import Database from 'better-sqlite3';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { config } from './config.js';
-import { RunMetadata, RunRecord, RunStatus, ScriptRecord } from './types.js';
+import {
+  RunArtifactRecord,
+  RunLogRecord,
+  RunMetadata,
+  RunRecord,
+  RunStatus,
+  ScriptRecord
+} from './types.js';
 
 const ensureDir = (dirPath: string): void => {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -34,9 +41,38 @@ CREATE TABLE IF NOT EXISTS runs (
   stderr_path TEXT NOT NULL,
   final_url TEXT NOT NULL DEFAULT '',
   console_logs TEXT NOT NULL DEFAULT '[]',
-  network_failures TEXT NOT NULL DEFAULT '[]'
+  network_failures TEXT NOT NULL DEFAULT '[]',
+  metadata_json TEXT NOT NULL DEFAULT 'null'
 );
+
+CREATE TABLE IF NOT EXISTS run_artifacts (
+  run_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, path)
+);
+
+CREATE TABLE IF NOT EXISTS run_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  stream TEXT,
+  message TEXT NOT NULL,
+  timestamp TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_artifacts_run_id ON run_artifacts (run_id);
+CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON run_logs (run_id, id);
 `);
+
+const hasColumn = (tableName: string, columnName: string): boolean => {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === columnName);
+};
+
+if (!hasColumn('runs', 'metadata_json')) {
+  db.exec(`ALTER TABLE runs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT 'null'`);
+}
 
 const supabase =
   config.supabaseUrl && config.supabaseAnonKey
@@ -75,7 +111,8 @@ const mapFlowToScript = (row: {
   created_at: string | null;
 }): ScriptRecord => {
   const name = (row.name && row.name.trim()) || `flow-${row.id.slice(0, 8)}`;
-  const content = row.generated_playwright ?? "import { test } from '@playwright/test';\n\ntest('name', async () => {\n});\n";
+  const content =
+    row.generated_playwright ?? "import { test } from '@playwright/test';\n\ntest('name', async () => {\n});\n";
   const filePath = writeScriptFile(sanitizeFileName(name, row.id), content);
   const createdAt = row.created_at ?? new Date().toISOString();
   return {
@@ -230,6 +267,18 @@ const persistRunLogToSupabase = async (entry: {
   }
 };
 
+const safeJsonParse = <T>(value: string | null | undefined, fallback: T): T => {
+  if (!value) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+};
+
 const mapRun = (row: Record<string, string | number | null>): RunRecord => ({
   id: row.id as string,
   scriptId: row.script_id as string,
@@ -244,9 +293,40 @@ const mapRun = (row: Record<string, string | number | null>): RunRecord => ({
   stdoutPath: row.stdout_path as string,
   stderrPath: row.stderr_path as string,
   finalUrl: (row.final_url as string) ?? '',
-  consoleLogs: JSON.parse((row.console_logs as string) ?? '[]') as string[],
-  networkFailures: JSON.parse((row.network_failures as string) ?? '[]') as string[]
+  consoleLogs: safeJsonParse((row.console_logs as string) ?? '[]', [] as string[]),
+  networkFailures: safeJsonParse((row.network_failures as string) ?? '[]', [] as string[]),
+  metadata: safeJsonParse<RunMetadata | null>((row.metadata_json as string) ?? 'null', null)
 });
+
+const replaceArtifactsInSqlite = (runId: string, artifactDir: string): void => {
+  const artifactPaths = listArtifactPaths(artifactDir);
+  const now = new Date().toISOString();
+
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM run_artifacts WHERE run_id = ?').run(runId);
+
+    if (artifactPaths.length === 0) {
+      return;
+    }
+
+    const stmt = db.prepare('INSERT INTO run_artifacts (run_id, path, created_at) VALUES (?, ?, ?)');
+    for (const artifactPath of artifactPaths) {
+      stmt.run(runId, artifactPath, now);
+    }
+  });
+
+  tx();
+};
+
+const persistLogToSqlite = (entry: RunLogRecord): void => {
+  db.prepare('INSERT INTO run_logs (run_id, type, stream, message, timestamp) VALUES (?, ?, ?, ?, ?)').run(
+    entry.runId,
+    entry.type,
+    entry.stream ?? null,
+    entry.message,
+    entry.timestamp
+  );
+};
 
 export const scriptRepo = {
   async create(script: ScriptRecord): Promise<void> {
@@ -313,15 +393,16 @@ export const runRepo = {
     db.prepare(
       `INSERT INTO runs (
          id, script_id, script_name, status, created_at, start_time, end_time, duration_ms,
-         workspace_dir, artifact_dir, stdout_path, stderr_path, final_url, console_logs, network_failures
+         workspace_dir, artifact_dir, stdout_path, stderr_path, final_url, console_logs, network_failures, metadata_json
        ) VALUES (
          @id, @scriptId, @scriptName, @status, @createdAt, @startTime, @endTime, @durationMs,
-         @workspaceDir, @artifactDir, @stdoutPath, @stderrPath, @finalUrl, @consoleLogs, @networkFailures
+         @workspaceDir, @artifactDir, @stdoutPath, @stderrPath, @finalUrl, @consoleLogs, @networkFailures, @metadataJson
        )`
     ).run({
       ...run,
       consoleLogs: JSON.stringify(run.consoleLogs),
-      networkFailures: JSON.stringify(run.networkFailures)
+      networkFailures: JSON.stringify(run.networkFailures),
+      metadataJson: JSON.stringify(run.metadata ?? null)
     });
 
     void persistRunToSupabase(run);
@@ -341,7 +422,8 @@ export const runRepo = {
          duration_ms=@durationMs,
          final_url=@finalUrl,
          console_logs=@consoleLogs,
-         network_failures=@networkFailures
+         network_failures=@networkFailures,
+         metadata_json=@metadataJson
        WHERE id=@id`
     ).run({
       id,
@@ -351,7 +433,8 @@ export const runRepo = {
       durationMs: next.durationMs,
       finalUrl: next.finalUrl,
       consoleLogs: JSON.stringify(next.consoleLogs),
-      networkFailures: JSON.stringify(next.networkFailures)
+      networkFailures: JSON.stringify(next.networkFailures),
+      metadataJson: JSON.stringify(next.metadata ?? null)
     });
 
     void persistRunToSupabase(next);
@@ -369,6 +452,37 @@ export const runRepo = {
       Record<string, string | number | null>
     >;
     return rows.map(mapRun);
+  },
+
+  listArtifacts(runId: string): RunArtifactRecord[] {
+    const rows = db
+      .prepare('SELECT run_id, path FROM run_artifacts WHERE run_id = ? ORDER BY path ASC')
+      .all(runId) as Array<{ run_id: string; path: string }>;
+
+    return rows.map((row) => ({
+      runId: row.run_id,
+      path: row.path
+    }));
+  },
+
+  listLogs(runId: string): RunLogRecord[] {
+    const rows = db
+      .prepare('SELECT run_id, type, stream, message, timestamp FROM run_logs WHERE run_id = ? ORDER BY id ASC')
+      .all(runId) as Array<{
+      run_id: string;
+      type: 'log' | 'status';
+      stream: 'stdout' | 'stderr' | null;
+      message: string;
+      timestamp: string;
+    }>;
+
+    return rows.map((row) => ({
+      runId: row.run_id,
+      type: row.type,
+      stream: row.stream ?? undefined,
+      message: row.message,
+      timestamp: row.timestamp
+    }));
   },
 
   stats(): { total: number; passed: number; failed: number; running: number } {
@@ -390,9 +504,12 @@ export const runRepo = {
       running: row.running ?? 0
     };
   },
+
   persistArtifacts(runId: string, artifactDir: string): void {
+    replaceArtifactsInSqlite(runId, artifactDir);
     void persistArtifactsToSupabase(runId, artifactDir);
   },
+
   persistLog(entry: {
     runId: string;
     logType: 'log' | 'status';
@@ -400,13 +517,23 @@ export const runRepo = {
     message: string;
     timestamp: string;
   }): void {
+    persistLogToSqlite({
+      runId: entry.runId,
+      type: entry.logType,
+      stream: entry.stream,
+      message: entry.message,
+      timestamp: entry.timestamp
+    });
     void persistRunLogToSupabase(entry);
   },
+
   attachMetadata(id: string, metadata: RunMetadata): void {
     const current = this.byId(id);
     if (!current) {
       return;
     }
+
+    db.prepare('UPDATE runs SET metadata_json = ? WHERE id = ?').run(JSON.stringify(metadata), id);
 
     const next = { ...current, metadata };
     void persistRunToSupabase(next);

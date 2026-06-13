@@ -25,7 +25,6 @@ const runSchema = z.object({
   scriptId: z.string().min(1)
 });
 
-
 const writeScriptFile = (name: string, content: string): string => {
   fs.mkdirSync(config.scriptsDir, { recursive: true });
   const scriptPath = path.join(config.scriptsDir, name);
@@ -33,6 +32,31 @@ const writeScriptFile = (name: string, content: string): string => {
   return scriptPath;
 };
 
+const listArtifactFiles = (artifactDir: string): string[] => {
+  const files: string[] = [];
+  if (!fs.existsSync(artifactDir)) {
+    return files;
+  }
+
+  const stack = [artifactDir];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    if (!dir) {
+      continue;
+    }
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else {
+        files.push(path.relative(artifactDir, full));
+      }
+    }
+  }
+
+  return files;
+};
 
 router.get('/healthz', (_req, res) => {
   res.status(200).json({
@@ -131,7 +155,8 @@ router.post('/api/run', upload.none(), async (req, res) => {
     stderrPath: path.join(config.artifactsDir, runId, 'stderr.txt'),
     finalUrl: '',
     consoleLogs: [],
-    networkFailures: []
+    networkFailures: [],
+    metadata: null
   };
   runRepo.create(run);
   runQueue.enqueue(run);
@@ -172,9 +197,24 @@ router.get('/api/run/:id', (req, res) => {
     res.status(404).json({ error: 'run not found' });
     return;
   }
-  const metadataPath = path.join(run.artifactDir, 'metadata.json');
-  const metadata = fs.existsSync(metadataPath) ? JSON.parse(fs.readFileSync(metadataPath, 'utf-8')) : null;
-  res.json({ ...run, metadata });
+
+  if (!run.metadata) {
+    const metadataPath = path.join(run.artifactDir, 'metadata.json');
+    if (fs.existsSync(metadataPath)) {
+      try {
+        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8')) as RunRecord['metadata'];
+        if (metadata) {
+          runRepo.attachMetadata(run.id, metadata);
+        }
+        res.json({ ...run, metadata });
+        return;
+      } catch {
+        // ignore malformed legacy metadata file and return DB data below
+      }
+    }
+  }
+
+  res.json(run);
 });
 
 router.get('/api/artifacts/:id', (req, res) => {
@@ -183,23 +223,12 @@ router.get('/api/artifacts/:id', (req, res) => {
     res.status(404).json({ error: 'run not found' });
     return;
   }
-  const files: string[] = [];
-  if (fs.existsSync(run.artifactDir)) {
-    const stack = [run.artifactDir];
-    while (stack.length > 0) {
-      const dir = stack.pop();
-      if (!dir) {
-        continue;
-      }
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          stack.push(full);
-        } else {
-          files.push(path.relative(run.artifactDir, full));
-        }
-      }
+
+  let files = runRepo.listArtifacts(run.id).map((item) => item.path);
+  if (files.length === 0) {
+    files = listArtifactFiles(run.artifactDir);
+    if (files.length > 0) {
+      runRepo.persistArtifacts(run.id, run.artifactDir);
     }
   }
 
@@ -254,13 +283,29 @@ router.get('/api/logs/:id', (req, res) => {
     res.status(404).json({ error: 'run not found' });
     return;
   }
-  const stdout = fs.existsSync(run.stdoutPath) ? fs.readFileSync(run.stdoutPath, 'utf-8') : '';
-  const stderr = fs.existsSync(run.stderrPath) ? fs.readFileSync(run.stderrPath, 'utf-8') : '';
+
+  const storedLogs = runRepo.listLogs(run.id);
+  const live = getBufferedLogs(run.id);
+
+  const stdoutFromDb = storedLogs
+    .filter((entry) => entry.type === 'log' && entry.stream === 'stdout')
+    .map((entry) => entry.message)
+    .join('');
+
+  const stderrFromDb = storedLogs
+    .filter((entry) => entry.type === 'log' && entry.stream === 'stderr')
+    .map((entry) => entry.message)
+    .join('');
+
+  const stdout = stdoutFromDb || (fs.existsSync(run.stdoutPath) ? fs.readFileSync(run.stdoutPath, 'utf-8') : '');
+  const stderr = stderrFromDb || (fs.existsSync(run.stderrPath) ? fs.readFileSync(run.stderrPath, 'utf-8') : '');
+
   res.json({
     runId: run.id,
     stdout,
     stderr,
-    live: getBufferedLogs(run.id)
+    entries: storedLogs,
+    live
   });
 });
 

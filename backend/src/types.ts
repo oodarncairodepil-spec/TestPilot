@@ -44,6 +44,19 @@ export interface RunMetadata {
   networkFailures: string[];
 }
 
+export interface RunArtifactRecord {
+  runId: string;
+  path: string;
+}
+
+export interface RunLogRecord {
+  runId: string;
+  type: 'log' | 'status';
+  stream?: 'stdout' | 'stderr';
+  message: string;
+  timestamp: string;
+}
+
 export interface ParsedRunResult {
   status: RunStatus;
   finalUrl: string;

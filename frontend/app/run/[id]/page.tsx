@@ -33,6 +33,15 @@ type ArtifactsResponse = {
   files: { path: string; url: string }[];
 };
 
+type LogsResponse = {
+  stdout: string;
+  stderr: string;
+  entries: {
+    type: 'log' | 'status';
+    message: string;
+  }[];
+};
+
 type ArtifactKind = 'image' | 'video' | 'json' | 'other';
 type BrowserTab = 'chromium' | 'firefox' | 'webkit';
 
@@ -193,12 +202,25 @@ export default function RunDetailPage() {
   }, [selectedBrowserTab]);
 
   const loadRunDetails = useCallback(async () => {
-    const [runRes, artifactsRes] = await Promise.all([
+    const [runRes, artifactsRes, logsRes] = await Promise.all([
       fetch(`${apiBase}/api/run/${runId}`),
-      fetch(`${apiBase}/api/artifacts/${runId}`)
+      fetch(`${apiBase}/api/artifacts/${runId}`),
+      fetch(`${apiBase}/api/logs/${runId}`)
     ]);
-    setRun((await runRes.json()) as RunDetails);
-    setArtifacts((await artifactsRes.json()) as ArtifactsResponse);
+
+    const runData = (await runRes.json()) as RunDetails;
+    const artifactsData = (await artifactsRes.json()) as ArtifactsResponse;
+    const logsData = (await logsRes.json()) as LogsResponse;
+
+    setRun(runData);
+    setArtifacts(artifactsData);
+
+    const persistedLogs = (logsData.entries ?? [])
+      .filter((entry) => entry.type === 'log')
+      .map((entry) => entry.message)
+      .join('');
+
+    setLiveLogs(persistedLogs || `${logsData.stdout ?? ''}${logsData.stderr ?? ''}`);
   }, [apiBase, runId]);
 
   useEffect(() => {
