@@ -24,6 +24,8 @@ jobs:
       DEPLOY_BRANCH: ${{ github.event.inputs.branch || github.ref_name }}
       DEPLOY_MODE: build
       DEPLOY_SERVICES: "frontend backend"
+      NEXT_PUBLIC_API_BASE_URL: "http://x300.taila1632d.ts.net:4000"
+      NEXT_PUBLIC_WS_BASE_URL: "ws://x300.taila1632d.ts.net:4000"
       HEALTHCHECK_URLS: "http://127.0.0.1:4000/healthz,http://127.0.0.1:3002"
       HEALTHCHECK_RETRIES: "20"
       HEALTHCHECK_INTERVAL_SEC: "3"

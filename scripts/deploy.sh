@@ -11,6 +11,15 @@ HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-20}"
 HEALTHCHECK_INTERVAL_SEC="${HEALTHCHECK_INTERVAL_SEC:-3}"
 ROLLBACK_ON_FAILURE="${ROLLBACK_ON_FAILURE:-true}"
 
+DEPLOY_BRANCH="${DEPLOY_BRANCH//$'\r'/}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH//$'\n'/}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH%% *}"
+
+if [[ -z "${DEPLOY_BRANCH}" ]]; then
+  echo "DEPLOY_BRANCH is empty after normalization" >&2
+  exit 1
+fi
+
 if [[ ! -d "${APP_DIR}" ]]; then
   echo "APP_DIR does not exist: ${APP_DIR}" >&2
   exit 1
@@ -72,9 +81,9 @@ rollback() {
 }
 
 echo "Deploying branch '${DEPLOY_BRANCH}' in ${APP_DIR} (mode: ${DEPLOY_MODE})"
-git fetch origin
+git fetch --prune origin "${DEPLOY_BRANCH}"
 git checkout "${DEPLOY_BRANCH}"
-git pull --ff-only origin "${DEPLOY_BRANCH}"
+git reset --hard "origin/${DEPLOY_BRANCH}"
 NEW_COMMIT="$(git rev-parse HEAD)"
 
 echo "Previous commit: ${PREVIOUS_COMMIT}"
