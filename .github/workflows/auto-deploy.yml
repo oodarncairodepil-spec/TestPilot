@@ -1,10 +1,6 @@
-name: Auto Deploy
+name: Auto Deploy (Manual)
 
 on:
-  push:
-    branches:
-      - main
-      - master
   workflow_dispatch:
     inputs:
       branch:
@@ -13,7 +9,7 @@ on:
         default: "main"
 
 concurrency:
-  group: auto-deploy-production
+  group: auto-deploy-manual
   cancel-in-progress: true
 
 jobs:
@@ -21,7 +17,7 @@ jobs:
     runs-on: self-hosted
     env:
       APP_DIR: /home/xghrtkl/TestPilot
-      DEPLOY_BRANCH: ${{ github.event.inputs.branch || github.ref_name }}
+      DEPLOY_BRANCH: ${{ github.event.inputs.branch || 'main' }}
       DEPLOY_MODE: build
       DEPLOY_SERVICES: "frontend backend"
       NEXT_PUBLIC_API_BASE_URL: "http://x300.taila1632d.ts.net:4000"
@@ -38,7 +34,7 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy latest commit
+      - name: Deploy selected branch
         run: |
           bash "${APP_DIR}/scripts/deploy.sh"
 
