@@ -96,14 +96,30 @@ const packageJson = {
 
 const timeoutShell = (seconds: number): string => `timeout --preserve-status ${seconds}s`;
 
+const ensureTestFileName = (name: string): string => {
+  const trimmed = name.trim();
+  if (/\.(spec|test)\.(ts|js|mjs|cjs)$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const stem = trimmed
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+
+  return `${stem || "run"}.spec.ts`;
+};
+
 const createWorkspace = (runId: string, script: ScriptRecord): { workspaceDir: string; artifactDir: string } => {
   const workspaceDir = path.join(config.workspacesDir, runId);
   const artifactDir = path.join(config.artifactsDir, runId);
+  const testFileName = ensureTestFileName(script.name);
   fs.rmSync(workspaceDir, { force: true, recursive: true });
   fs.rmSync(artifactDir, { force: true, recursive: true });
   fs.mkdirSync(path.join(workspaceDir, 'tests'), { recursive: true });
   fs.mkdirSync(artifactDir, { recursive: true });
-  fs.writeFileSync(path.join(workspaceDir, 'tests', script.name), script.content, 'utf-8');
+  fs.writeFileSync(path.join(workspaceDir, 'tests', testFileName), script.content, 'utf-8');
   fs.writeFileSync(path.join(workspaceDir, 'playwright.config.ts'), playwrightConfigTs, 'utf-8');
   writeJson(path.join(workspaceDir, 'package.json'), packageJson);
   return { workspaceDir, artifactDir };
