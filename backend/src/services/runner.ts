@@ -152,13 +152,23 @@ export const cancelExecution = (runId: string): boolean => {
 export const executeScript = async (runId: string, script: ScriptRecord): Promise<RunExecutionResult> => {
   const startedAt = new Date().toISOString();
   const { workspaceDir, artifactDir } = createWorkspace(runId, script);
+  const workspacePackageJsonPath = path.join(workspaceDir, 'package.json');
+  const workspaceConfigPath = path.join(workspaceDir, 'playwright.config.ts');
   const stdoutPath = path.join(artifactDir, 'stdout.txt');
   const stderrPath = path.join(artifactDir, 'stderr.txt');
   const stdoutStream = fs.createWriteStream(stdoutPath, { flags: 'a' });
   const stderrStream = fs.createWriteStream(stderrPath, { flags: 'a' });
 
+  if (!fs.existsSync(workspacePackageJsonPath)) {
+    throw new Error(`workspace package.json missing before docker run: ${workspacePackageJsonPath}`);
+  }
+
+  if (!fs.existsSync(workspaceConfigPath)) {
+    throw new Error(`workspace playwright config missing before docker run: ${workspaceConfigPath}`);
+  }
+
   const timeoutSec = Math.floor(config.maxRunMs / 1000);
-  const command = `${timeoutShell(timeoutSec)} bash -lc "npm install --no-audit --no-fund && npx playwright test"`;
+  const command = `${timeoutShell(timeoutSec)} bash -lc "pwd && ls -la /workspace && cat /workspace/package.json && npm install --no-audit --no-fund && npx playwright test"`;
   const containerName = containerNameForRun(runId);
 
   removeContainerSync(containerName);
