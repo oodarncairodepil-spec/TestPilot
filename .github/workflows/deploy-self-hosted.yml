@@ -39,10 +39,10 @@ jobs:
           set -euo pipefail
           ENV_FILE="${REPO_DIR}/.env"
           if [ ! -f "${ENV_FILE}" ]; then
-            cat > "${ENV_FILE}" <<ENV
-NEXT_PUBLIC_API_BASE_URL=http://x300.taila1632d.ts.net:4000
-NEXT_PUBLIC_WS_BASE_URL=ws://x300.taila1632d.ts.net:4000
-ENV
+            printf '%s\n' \
+              'NEXT_PUBLIC_API_BASE_URL=http://x300.taila1632d.ts.net:4000' \
+              'NEXT_PUBLIC_WS_BASE_URL=ws://x300.taila1632d.ts.net:4000' \
+              > "${ENV_FILE}"
           fi
 
       - name: Rebuild and restart services
