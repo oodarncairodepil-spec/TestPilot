@@ -7,9 +7,9 @@ services:
       PORT: 4000
       CORS_ORIGIN: "*"
       DATABASE_PATH: /app/data/app.db
-      SCRIPTS_DIR: /home/xghrtkl/playwright-runner-platform/scripts
-      ARTIFACTS_DIR: /home/xghrtkl/playwright-runner-platform/artifacts
-      WORKSPACES_DIR: /home/xghrtkl/playwright-runner-platform/workspaces
+      SCRIPTS_DIR: /home/xghrtkl/TestPilot/scripts
+      ARTIFACTS_DIR: /home/xghrtkl/TestPilot/artifacts
+      WORKSPACES_DIR: /home/xghrtkl/TestPilot/workspaces
       RUNNER_IMAGE: playwright-test-runner:local
       MAX_RUN_MS: 600000
       RUN_CPU_LIMIT: "2.0"
@@ -21,9 +21,9 @@ services:
       - "4000:4000"
     volumes:
       - ./data:/app/data
-      - ./scripts:/home/xghrtkl/playwright-runner-platform/scripts
-      - ./artifacts:/home/xghrtkl/playwright-runner-platform/artifacts
-      - ./workspaces:/home/xghrtkl/playwright-runner-platform/workspaces
+      - ./scripts:/home/xghrtkl/TestPilot/scripts
+      - ./artifacts:/home/xghrtkl/TestPilot/artifacts
+      - ./workspaces:/home/xghrtkl/TestPilot/workspaces
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - runner-image
