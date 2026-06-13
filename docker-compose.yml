@@ -18,6 +18,8 @@ services:
       RUN_CPU_LIMIT: "2.0"
       RUN_MEMORY_LIMIT: 2g
       LOG_LEVEL: info
+      SUPABASE_URL: https://dceuylqqzkleyiygbqrb.supabase.co
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRjZXV5bHFxemtsZXlpeWdicXJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExODEyMjIsImV4cCI6MjA5Njc1NzIyMn0.1NfZOjIGaagJaHYaOypxpVV8gvsRY1tN1Y_IpUPTkyA
     ports:
       - "4000:4000"
     volumes:

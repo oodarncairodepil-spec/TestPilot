@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 import { config } from './config.js';
 import { RunRecord, RunStatus, ScriptRecord } from './types.js';
 
@@ -17,15 +19,6 @@ const db = new Database(config.dbPath);
 db.pragma('journal_mode = WAL');
 
 db.exec(`
-CREATE TABLE IF NOT EXISTS scripts (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  content TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
   script_id TEXT NOT NULL,
@@ -41,19 +34,66 @@ CREATE TABLE IF NOT EXISTS runs (
   stderr_path TEXT NOT NULL,
   final_url TEXT NOT NULL DEFAULT '',
   console_logs TEXT NOT NULL DEFAULT '[]',
-  network_failures TEXT NOT NULL DEFAULT '[]',
-  FOREIGN KEY(script_id) REFERENCES scripts(id)
+  network_failures TEXT NOT NULL DEFAULT '[]'
 );
 `);
 
-const mapScript = (row: Record<string, string>): ScriptRecord => ({
-  id: row.id,
-  name: row.name,
-  content: row.content,
-  filePath: row.file_path,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at
-});
+const supabase =
+  config.supabaseUrl && config.supabaseAnonKey
+    ? createClient(config.supabaseUrl, config.supabaseAnonKey, {
+        auth: { persistSession: false },
+        realtime: { transport: WebSocket as any }
+      })
+    : null;
+
+const extractStartUrl = (content: string): string | null => {
+  const match = content.match(/page\.goto\((['"])(.*?)\1\)/);
+  if (!match) return null;
+  return match[2] ?? null;
+};
+
+const sanitizeFileName = (name: string, id: string): string => {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  return `${base || 'script'}-${id.slice(0, 8)}.spec.ts`;
+};
+
+const writeScriptFile = (name: string, content: string): string => {
+  fs.mkdirSync(config.scriptsDir, { recursive: true });
+  const scriptPath = path.join(config.scriptsDir, name);
+  fs.writeFileSync(scriptPath, content, 'utf-8');
+  return scriptPath;
+};
+
+const mapFlowToScript = (row: {
+  id: string;
+  name: string | null;
+  generated_playwright: string | null;
+  created_at: string | null;
+}): ScriptRecord => {
+  const name = (row.name && row.name.trim()) || `flow-${row.id.slice(0, 8)}`;
+  const content = row.generated_playwright ?? "import { test } from '@playwright/test';\n\ntest('name', async () => {\n});\n";
+  const filePath = writeScriptFile(sanitizeFileName(name, row.id), content);
+  const createdAt = row.created_at ?? new Date().toISOString();
+  return {
+    id: row.id,
+    name,
+    content,
+    filePath,
+    createdAt,
+    updatedAt: createdAt
+  };
+};
+
+const ensureSupabase = (): NonNullable<typeof supabase> => {
+  if (!supabase) {
+    throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
+  }
+  return supabase;
+};
 
 const mapRun = (row: Record<string, string | number | null>): RunRecord => ({
   id: row.id as string,
@@ -74,29 +114,62 @@ const mapRun = (row: Record<string, string | number | null>): RunRecord => ({
 });
 
 export const scriptRepo = {
-  create(script: ScriptRecord): void {
-    db.prepare(
-      `INSERT INTO scripts (id, name, content, file_path, created_at, updated_at)
-       VALUES (@id, @name, @content, @filePath, @createdAt, @updatedAt)`
-    ).run(script);
+  async create(script: ScriptRecord): Promise<void> {
+    const client = ensureSupabase();
+    const { error } = await client.from('qauto_flows').insert({
+      id: script.id,
+      name: script.name,
+      start_url: extractStartUrl(script.content),
+      generated_playwright: script.content
+    });
+    if (error) throw new Error(`failed to create flow: ${error.message}`);
+
+    writeScriptFile(sanitizeFileName(script.name, script.id), script.content);
   },
-  update(script: ScriptRecord): void {
-    db.prepare(
-      `UPDATE scripts
-       SET name=@name, content=@content, file_path=@filePath, updated_at=@updatedAt
-       WHERE id=@id`
-    ).run(script);
+
+  async update(script: ScriptRecord): Promise<void> {
+    const client = ensureSupabase();
+    const { error } = await client
+      .from('qauto_flows')
+      .update({
+        name: script.name,
+        start_url: extractStartUrl(script.content),
+        generated_playwright: script.content
+      })
+      .eq('id', script.id);
+    if (error) throw new Error(`failed to update flow: ${error.message}`);
+
+    writeScriptFile(sanitizeFileName(script.name, script.id), script.content);
   },
-  delete(id: string): void {
-    db.prepare('DELETE FROM scripts WHERE id = ?').run(id);
+
+  async delete(id: string): Promise<void> {
+    const client = ensureSupabase();
+    const { error } = await client.from('qauto_flows').delete().eq('id', id);
+    if (error) throw new Error(`failed to delete flow: ${error.message}`);
   },
-  byId(id: string): ScriptRecord | null {
-    const row = db.prepare('SELECT * FROM scripts WHERE id = ?').get(id) as Record<string, string> | undefined;
-    return row ? mapScript(row) : null;
+
+  async byId(id: string): Promise<ScriptRecord | null> {
+    const client = ensureSupabase();
+    const { data, error } = await client
+      .from('qauto_flows')
+      .select('id,name,generated_playwright,created_at')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw new Error(`failed to fetch flow: ${error.message}`);
+    if (!data) return null;
+    return mapFlowToScript(data);
   },
-  list(): ScriptRecord[] {
-    const rows = db.prepare('SELECT * FROM scripts ORDER BY updated_at DESC').all() as Record<string, string>[];
-    return rows.map(mapScript);
+
+  async list(): Promise<ScriptRecord[]> {
+    const client = ensureSupabase();
+    const { data, error } = await client
+      .from('qauto_flows')
+      .select('id,name,generated_playwright,created_at')
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(`failed to list flows: ${error.message}`);
+    return (data ?? []).map(mapFlowToScript);
   }
 };
 
@@ -116,6 +189,7 @@ export const runRepo = {
       networkFailures: JSON.stringify(run.networkFailures)
     });
   },
+
   update(id: string, patch: Partial<RunRecord>): void {
     const current = this.byId(id);
     if (!current) {
@@ -143,18 +217,21 @@ export const runRepo = {
       networkFailures: JSON.stringify(next.networkFailures)
     });
   },
+
   byId(id: string): RunRecord | null {
     const row = db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as
       | Record<string, string | number | null>
       | undefined;
     return row ? mapRun(row) : null;
   },
+
   list(): RunRecord[] {
     const rows = db.prepare('SELECT * FROM runs ORDER BY created_at DESC').all() as Array<
       Record<string, string | number | null>
     >;
     return rows.map(mapRun);
   },
+
   stats(): { total: number; passed: number; failed: number; running: number } {
     const row = db
       .prepare(
@@ -175,4 +252,3 @@ export const runRepo = {
     };
   }
 };
-

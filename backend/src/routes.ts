@@ -25,12 +25,14 @@ const runSchema = z.object({
   scriptId: z.string().min(1)
 });
 
+
 const writeScriptFile = (name: string, content: string): string => {
   fs.mkdirSync(config.scriptsDir, { recursive: true });
   const scriptPath = path.join(config.scriptsDir, name);
   fs.writeFileSync(scriptPath, content, 'utf-8');
   return scriptPath;
 };
+
 
 router.get('/healthz', (_req, res) => {
   res.status(200).json({
@@ -40,11 +42,12 @@ router.get('/healthz', (_req, res) => {
   });
 });
 
-router.get('/api/scripts', (_req, res) => {
-  res.json({ items: scriptRepo.list() });
+router.get('/api/scripts', async (_req, res) => {
+  const items = await scriptRepo.list();
+  res.json({ items });
 });
 
-router.post('/api/scripts', upload.none(), (req, res) => {
+router.post('/api/scripts', upload.none(), async (req, res) => {
   const payload = scriptSchema.safeParse(req.body);
   if (!payload.success) {
     res.status(400).json({ error: payload.error.flatten() });
@@ -59,17 +62,17 @@ router.post('/api/scripts', upload.none(), (req, res) => {
     createdAt: now,
     updatedAt: now
   };
-  scriptRepo.create(script);
+  await scriptRepo.create(script);
   res.status(201).json(script);
 });
 
-router.put('/api/scripts/:id', upload.none(), (req, res) => {
+router.put('/api/scripts/:id', upload.none(), async (req, res) => {
   const payload = scriptSchema.safeParse(req.body);
   if (!payload.success) {
     res.status(400).json({ error: payload.error.flatten() });
     return;
   }
-  const current = scriptRepo.byId(String(req.params.id));
+  const current = await scriptRepo.byId(String(req.params.id));
   if (!current) {
     res.status(404).json({ error: 'script not found' });
     return;
@@ -84,28 +87,28 @@ router.put('/api/scripts/:id', upload.none(), (req, res) => {
     filePath: writeScriptFile(payload.data.name, payload.data.content),
     updatedAt: new Date().toISOString()
   };
-  scriptRepo.update(updated);
+  await scriptRepo.update(updated);
   res.json(updated);
 });
 
-router.delete('/api/scripts/:id', (req, res) => {
-  const current = scriptRepo.byId(String(req.params.id));
+router.delete('/api/scripts/:id', async (req, res) => {
+  const current = await scriptRepo.byId(String(req.params.id));
   if (!current) {
     res.status(404).json({ error: 'script not found' });
     return;
   }
   fs.rmSync(current.filePath, { force: true });
-  scriptRepo.delete(current.id);
+  await scriptRepo.delete(current.id);
   res.status(204).send();
 });
 
-router.post('/api/run', upload.none(), (req, res) => {
+router.post('/api/run', upload.none(), async (req, res) => {
   const payload = runSchema.safeParse(req.body);
   if (!payload.success) {
     res.status(400).json({ error: payload.error.flatten() });
     return;
   }
-  const script = scriptRepo.byId(payload.data.scriptId);
+  const script = await scriptRepo.byId(payload.data.scriptId);
   if (!script) {
     res.status(404).json({ error: 'script not found' });
     return;
@@ -135,9 +138,9 @@ router.post('/api/run', upload.none(), (req, res) => {
   res.status(202).json(run);
 });
 
-router.post('/api/run/:id/stop', (req, res) => {
+router.post('/api/run/:id/stop', async (req, res) => {
   const runId = String(req.params.id);
-  const stopResult = runQueue.stop(runId);
+  const stopResult = await runQueue.stop(runId);
 
   if (!stopResult.ok) {
     if (stopResult.reason === 'not_found') {

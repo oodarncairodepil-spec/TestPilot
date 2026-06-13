@@ -21,7 +21,7 @@ let running = false;
 
 const runOne = async (item: QueueItem): Promise<void> => {
   const run = runRepo.byId(item.runId);
-  const script = scriptRepo.byId(item.scriptId);
+  const script = await scriptRepo.byId(item.scriptId);
   if (!run || !script) {
     return;
   }
@@ -76,7 +76,7 @@ export const runQueue = {
     queue.push({ runId: run.id, scriptId: run.scriptId });
     void drain();
   },
-  stop(runId: string): StopResult {
+  async stop(runId: string): Promise<StopResult> {
     const run = runRepo.byId(runId);
     if (!run) {
       return { ok: false, reason: 'not_found' };

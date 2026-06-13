@@ -20,6 +20,8 @@ export const config = {
   maxRunMs: toNumber(process.env.MAX_RUN_MS, 10 * 60 * 1000),
   runCpuLimit: process.env.RUN_CPU_LIMIT ?? '2.0',
   runMemoryLimit: process.env.RUN_MEMORY_LIMIT ?? '2g',
-  logLevel: process.env.LOG_LEVEL ?? 'info'
+  logLevel: process.env.LOG_LEVEL ?? 'info',
+  supabaseUrl: process.env.SUPABASE_URL ?? '',
+  supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? ''
 } as const;
 
