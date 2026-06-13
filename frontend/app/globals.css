@@ -1,0 +1,229 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: #f4f6fb;
+  color: #101727;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.page {
+  padding: 16px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 12px;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #d8e0f2;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(90px, 1fr));
+  gap: 8px;
+}
+
+.stat {
+  border: 1px solid #d8e0f2;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.stat .label {
+  font-size: 12px;
+  color: #5d6785;
+}
+
+.stat .value {
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.row input {
+  flex: 1;
+  border: 1px solid #b9c7e3;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.btn {
+  border: 1px solid #2747c2;
+  background: #3056d3;
+  color: #fff;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.btn.secondary {
+  background: #fff;
+  color: #2747c2;
+}
+
+.btn.warn {
+  border-color: #b03535;
+  background: #c73f3f;
+}
+
+.list {
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid #d8e0f2;
+  border-radius: 6px;
+}
+
+.list-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.list-item.active {
+  background: #eaf0ff;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e2e7f4;
+  padding: 8px;
+  text-align: left;
+  font-size: 13px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.queued,
+.running {
+  background: #fff4d6;
+  color: #8b5f00;
+}
+
+.passed {
+  background: #e0f7e8;
+  color: #196035;
+}
+
+.failed,
+.timeout,
+.cancelled {
+  background: #ffe2e2;
+  color: #8a2222;
+}
+
+.logs {
+  background: #0f172a;
+  color: #cde0ff;
+  border-radius: 6px;
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.artifact-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+  margin-bottom: 4px;
+  background: transparent;
+  border: 0;
+  color: #2747c2;
+  cursor: pointer;
+  padding: 0;
+}
+
+.artifact-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 30, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 40;
+}
+
+.artifact-modal-content {
+  width: min(1100px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #d8e0f2;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.artifact-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+
+.artifact-image,
+.artifact-video {
+  width: 100%;
+  max-height: calc(90vh - 80px);
+  object-fit: contain;
+  background: #0f172a;
+}
+
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

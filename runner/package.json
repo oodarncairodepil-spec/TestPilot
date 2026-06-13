@@ -1,0 +1,9 @@
+{
+  "name": "playwright-test-runner",
+  "private": true,
+  "version": "1.0.0",
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}
+

@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+backend/dist/
+frontend/.next/
+frontend/out/
+
+# Runtime data
+artifacts/
+workspaces/
+
+# Local DB/data
+data/app.db
+data/app.db-shm
+data/app.db-wal
+
+# Env/editor
+.env
+.env.*
+!.env.example
+*.swp
+.DS_Store

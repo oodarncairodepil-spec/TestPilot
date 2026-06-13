@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: playwright-runner-backend
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4000
+      CORS_ORIGIN: "*"
+      DATABASE_PATH: /app/data/app.db
+      SCRIPTS_DIR: /home/xghrtkl/playwright-runner-platform/scripts
+      ARTIFACTS_DIR: /home/xghrtkl/playwright-runner-platform/artifacts
+      WORKSPACES_DIR: /home/xghrtkl/playwright-runner-platform/workspaces
+      RUNNER_IMAGE: playwright-test-runner:local
+      MAX_RUN_MS: 600000
+      RUN_CPU_LIMIT: "2.0"
+      RUN_MEMORY_LIMIT: 2g
+      LOG_LEVEL: info
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./data:/app/data
+      - ./scripts:/home/xghrtkl/playwright-runner-platform/scripts
+      - ./artifacts:/home/xghrtkl/playwright-runner-platform/artifacts
+      - ./workspaces:/home/xghrtkl/playwright-runner-platform/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - runner-image
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: playwright-runner-frontend
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
+      NEXT_PUBLIC_WS_BASE_URL: ws://localhost:4000
+    ports:
+      - "3002:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  runner-image:
+    build:
+      context: ./runner
+    image: playwright-test-runner:local
+    command: ["bash", "-lc", "echo Runner image built"]
+
