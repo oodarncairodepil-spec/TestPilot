@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, Copy, Globe, LayoutDashboard, ListChecks, MousePointerClick, PanelLeftClose, PanelLeftOpen, Pencil, Play, Save, TestTube2, Trash2, WandSparkles } from 'lucide-react';
+import { AlertCircle, Copy, Globe, LayoutDashboard, ListChecks, MousePointerClick, PanelLeftClose, PanelLeftOpen, Pencil, Play, Plus, Save, TestTube2, Trash2, WandSparkles } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -530,21 +530,22 @@ export default function HomePage() {
                     <CardTitle>Scenario Studio</CardTitle>
                     <CardDescription>Create, search, refine, and launch Playwright test scenarios from one surface.</CardDescription>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" onClick={createNewScenario}>
-                      New scenario
-                    </Button>
+                  <div className="flex flex-wrap gap-2 xl:justify-end">
                     <Button variant="destructive" onClick={() => setIsDeleteConfirmOpen(true)}>
                       <Trash2 className="mr-2 h-4 w-4" />
                       Delete
                     </Button>
                     <Button onClick={saveScript} disabled={isSavingScript}>
                       <Save className="mr-2 h-4 w-4" />
-                      {isSavingScript ? 'Saving...' : 'Save scenario'}
+                      {isSavingScript ? 'Saving...' : 'Save'}
                     </Button>
                     <Button variant="secondary" onClick={runScript} disabled={isRunningScript || !selectedScript}>
                       <Play className="mr-2 h-4 w-4" />
-                      {isRunningScript ? 'Starting run...' : 'Run scenario'}
+                      {isRunningScript ? 'Starting run...' : 'Run'}
+                    </Button>
+                    <Button variant="secondary" onClick={createNewScenario}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      New
                     </Button>
                   </div>
                 </div>
@@ -573,7 +574,12 @@ export default function HomePage() {
                               placeholder="Search scenario by name or id"
                               className="border-white/10 bg-slate-950/70"
                             />
-                            <div className="mt-2 max-h-72 space-y-2 overflow-auto rounded-2xl border border-white/10 bg-slate-950/40 p-2">
+                            <div className="mt-2 rounded-2xl border border-white/10 bg-slate-950/40 p-2">
+                              <div className="mb-2 flex items-center justify-between px-1 text-xs text-slate-400">
+                                <span>{filteredScripts.length} scenario{filteredScripts.length === 1 ? '' : 's'}</span>
+                                <span>{scripts.length} total</span>
+                              </div>
+                              <div className="max-h-72 space-y-2 overflow-auto pr-1">
                               {filteredScripts.length === 0 && <p className="px-3 py-4 text-sm text-slate-400">No scenarios found for your search.</p>}
                               {filteredScripts.map((script) => {
                                 const active = script.id === selectedScriptId;
@@ -595,6 +601,7 @@ export default function HomePage() {
                                   </button>
                                 );
                               })}
+                              </div>
                             </div>
                           </div>
                         )}
