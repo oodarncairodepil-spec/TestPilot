@@ -107,6 +107,18 @@ const formatDuration = (durationMs: number | null): string => {
 
 const escapeTsString = (value: string): string => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
+const normalizeScenarioName = (value: string): string => {
+  const trimmed = value.trim();
+  const withoutExtension = trimmed.replace(/\.spec\.ts$/i, '');
+  const normalizedBase = withoutExtension
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return `${normalizedBase || 'scenario'}.spec.ts`;
+};
+
 export default function HomePage() {
   const router = useRouter();
   const resultsPageSize = 10;
@@ -136,6 +148,7 @@ export default function HomePage() {
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunningScript, setIsRunningScript] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [isSavingScript, setIsSavingScript] = useState(false);
 
   const selectedScript = useMemo(
@@ -228,22 +241,52 @@ export default function HomePage() {
   const saveScript = async () => {
     setIsSavingScript(true);
     setSaveError(null);
+    setSaveSuccess(null);
+    const normalizedScriptName = normalizeScenarioName(scriptName);
     try {
       const response = await fetch(
         selectedScript ? `${apiBase}/api/scripts/${selectedScript.id}` : `${apiBase}/api/scripts`,
         {
           method: selectedScript ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: scriptName, content: scriptContent })
+          body: JSON.stringify({ name: normalizedScriptName, content: scriptContent })
         }
       );
 
       if (!response.ok) {
+        let message = `Unable to save scenario (${response.status})`;
         const errorText = await response.text();
-        throw new Error(errorText || `Unable to save scenario (${response.status})`);
+
+        try {
+          const payload = JSON.parse(errorText) as {
+            error?: {
+              fieldErrors?: Record<string, string[]>;
+              formErrors?: string[];
+            };
+          };
+
+          const fieldErrors = payload.error?.fieldErrors ?? {};
+          const formErrors = payload.error?.formErrors ?? [];
+          const firstFieldError = Object.entries(fieldErrors)
+            .flatMap(([field, messages]) => messages.map((entry) => `${field}: ${entry}`))[0];
+
+          message = firstFieldError || formErrors[0] || errorText || message;
+        } catch {
+          if (errorText) {
+            message = errorText;
+          }
+        }
+
+        throw new Error(message);
       }
 
+      const savedScript = (await response.json()) as Script;
       await refreshScripts();
+      setSelectedScriptId(savedScript.id);
+      setScriptName(savedScript.name);
+      setScriptContent(savedScript.content);
+      setIsEditingScenarioName(false);
+      setSaveSuccess(`Saved ${savedScript.name} to Supabase.`);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Unable to save scenario');
     } finally {
@@ -339,6 +382,7 @@ export default function HomePage() {
     setIsScenarioDropdownOpen(false);
     setIsEditingScenarioName(true);
     setSaveError(null);
+    setSaveSuccess(null);
     setRunError(null);
     setLeftMenu('scenario');
   };
@@ -643,6 +687,11 @@ export default function HomePage() {
                       <div className="flex items-start gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-3 text-sm text-rose-100">
                         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                         <span>{saveError}</span>
+                      </div>
+                    )}
+                    {saveSuccess && (
+                      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-3 text-sm text-emerald-100">
+                        {saveSuccess}
                       </div>
                     )}
                     <div className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950/60 shadow-soft">
